@@ -1,0 +1,1095 @@
+{
+  "schema_version": "0.1",
+  "analysis": {
+    "analysis_id": "pty-chi-characterization-2026-07-28-draft-01",
+    "created_at": "2026-07-28T00:00:00Z",
+    "agent_version": "systemflow-application-characterization-agent-0.1",
+    "source_revision": null,
+    "status": "approved"
+  },
+  "application": {
+    "name": "pty-chi",
+    "source_path": ".",
+    "languages": [
+      "Python"
+    ],
+    "frameworks": [
+      "PyTorch",
+      "NumPy",
+      "h5py",
+      "SciPy",
+      "scikit-learn"
+    ],
+    "summary": "Ptychographic reconstruction package. This revised characterization covers the PIE path with square diffraction patterns, one coherent probe mode, input reads, repeated diffraction host-to-device transfers, and iterative reconstruction. Output copying and saving are excluded.",
+    "analysis_boundary": "The selected boundary is scripts/run_ptychi.py invoked with --algorithm pie and --no-save-output on an accelerator, using square R-by-N-by-N diffraction data, a planar object, far-field Fourier propagation, one coherent probe mode, and one OPR mode. The four workload model inputs requested by review are number of images R, resolution N, requested batch size B, and reconstruction iterations I. The CLI calls iterations epochs. PIE overrides B and executes one image per minibatch, so B is retained as a requested model input but does not change the selected implementation's leading FLOPs, total transferred payload, or actual batch size."
+  },
+  "entrypoints": [
+    {
+      "entrypoint_id": "cli_run_ptychi_pie",
+      "kind": "command_line_script",
+      "path": "scripts/run_ptychi.py",
+      "symbol": "run_single",
+      "invocation": "python scripts/run_ptychi.py --dataset <key-or-stem> --algorithm pie --epochs <I> --batch-size <B> --device <cuda-or-xpu> --no-save-output",
+      "selected": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 251,
+          "symbol": "run_single",
+          "description": "Defines the selected command-line entry point."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 264,
+          "symbol": "--algorithm",
+          "description": "Selects the reconstruction algorithm; this characterization fixes it to PIE."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 268,
+          "symbol": "--epochs",
+          "description": "Provides the reconstruction iteration count used as I."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 284,
+          "symbol": "--no-save-output",
+          "description": "Suppresses reconstruction copies to CPU and NPZ output."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 324,
+          "symbol": "run_single",
+          "description": "Loads the HDF5 inputs, builds the task, and starts reconstruction."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "entrypoint_id": "api_ptychography_task",
+      "kind": "python_api",
+      "path": "src/ptychi/api/task.py",
+      "symbol": "PtychographyTask",
+      "invocation": "task = PtychographyTask(options); task.run()",
+      "selected": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "src/ptychi/api/task.py",
+          "line": 62,
+          "symbol": "PtychographyTask",
+          "description": "Builds the configured dataset, object, probe, positions, and reconstructor."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/api/task.py",
+          "line": 261,
+          "symbol": "PtychographyTask.run",
+          "description": "Runs the configured iterative reconstructor."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "candidate_inputs": [
+    {
+      "input_id": "image_count",
+      "display_name": "Number of diffraction images",
+      "symbol": "R",
+      "classification": "problem_shape",
+      "data_type": "positive integer",
+      "units": "images",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": null,
+      "model_input": true,
+      "affects": [
+        "PIE iteration FLOPs",
+        "PIE minibatch update count",
+        "diffraction input bytes",
+        "position input bytes",
+        "repeated diffraction host-to-device bytes"
+      ],
+      "exclusion_reason": null,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 92,
+          "symbol": "load_converted_data",
+          "description": "Reads the complete diffraction dataset."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/io_handles.py",
+          "line": 62,
+          "symbol": "PtychographyDataset.__len__",
+          "description": "The dataset length is the first dimension of the diffraction tensor."
+        }
+      ],
+      "assumptions": [
+        "The diffraction dataset has shape R by N by N.",
+        "Each of the two position arrays contains R coordinates.",
+        "Every image is processed once in each reconstruction iteration."
+      ],
+      "confidence": "high",
+      "human_decision": "keep_as_model_input"
+    },
+    {
+      "input_id": "resolution",
+      "display_name": "Square image resolution",
+      "symbol": "N",
+      "classification": "problem_shape",
+      "data_type": "positive integer",
+      "units": "pixels per spatial dimension",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": 64,
+      "model_input": true,
+      "affects": [
+        "FFT FLOPs",
+        "elementwise PIE FLOPs",
+        "diffraction input bytes",
+        "probe input bytes",
+        "repeated diffraction host-to-device bytes"
+      ],
+      "exclusion_reason": null,
+      "evidence": [
+        {
+          "source_type": "repository_model",
+          "path": "modeling_exp/modeling_analysis.ipynb",
+          "line": 569,
+          "symbol": "N",
+          "description": "Defines N as image resolution for the repository FLOP model."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/forward_models.py",
+          "line": 445,
+          "symbol": "PlanarPtychographyForwardModel.forward_far_field",
+          "description": "Far-field wavefields retain the probe-sized spatial dimensions."
+        }
+      ],
+      "assumptions": [
+        "Diffraction images and the probe have square spatial shape N by N.",
+        "Detector cropping is disabled or does not change the N-by-N modeled extent."
+      ],
+      "confidence": "high",
+      "human_decision": "keep_as_model_input"
+    },
+    {
+      "input_id": "requested_batch_size",
+      "display_name": "Requested batch size",
+      "symbol": "B",
+      "classification": "execution_parameter",
+      "data_type": "positive integer",
+      "units": "images",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": 1000,
+      "model_input": true,
+      "affects": [
+        "requested CLI configuration",
+        "no selected PIE workload quantity because the entry point overrides it with an effective batch size of one"
+      ],
+      "exclusion_reason": null,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 269,
+          "symbol": "--batch-size",
+          "description": "Defines the requested CLI batch size."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 195,
+          "symbol": "make_options",
+          "description": "When algorithm is PIE, the reconstructor batch size is unconditionally set to one rather than B."
+        }
+      ],
+      "assumptions": [
+        "B is retained as a model input as explicitly requested by human review.",
+        "For this exact entry point and PIE path, changing B does not change the effective batch size, update count, leading FLOPs, or total diffraction transfer bytes.",
+        "A future PIE configuration that does not force batch size one requires a revised dependency model."
+      ],
+      "confidence": "high",
+      "human_decision": "keep_as_model_input"
+    },
+    {
+      "input_id": "iterations",
+      "display_name": "Reconstruction iterations",
+      "symbol": "I",
+      "classification": "algorithm_parameter",
+      "data_type": "nonnegative integer",
+      "units": "iterations",
+      "valid_domain": {
+        "minimum": 0
+      },
+      "default_value": 500,
+      "model_input": true,
+      "affects": [
+        "total PIE reconstruction FLOPs",
+        "PIE update count",
+        "repeated diffraction host-to-device bytes"
+      ],
+      "exclusion_reason": null,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 268,
+          "symbol": "--epochs",
+          "description": "The CLI iteration count is named epochs and defaults to 500."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 199,
+          "symbol": "make_options",
+          "description": "Assigns the CLI epoch count to reconstructor num_epochs."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/base.py",
+          "line": 382,
+          "symbol": "IterativeReconstructor.run",
+          "description": "The outer reconstruction loop executes the requested number of iterations."
+        }
+      ],
+      "assumptions": [
+        "One iteration means one complete traversal of all R images.",
+        "I is the same quantity called epochs in the source and CLI."
+      ],
+      "confidence": "high",
+      "human_decision": "keep_as_model_input"
+    },
+    {
+      "input_id": "diffraction_element_width",
+      "display_name": "Diffraction element width",
+      "symbol": "b_I",
+      "classification": "operational_parameter",
+      "data_type": "positive integer",
+      "units": "bytes per intensity element",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": null,
+      "model_input": false,
+      "affects": [
+        "diffraction storage-read bytes",
+        "repeated diffraction host-to-device bytes"
+      ],
+      "exclusion_reason": "This is a runtime dtype property needed to convert modeled element counts to bytes, not one of the four human-selected workload model inputs.",
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 92,
+          "symbol": "load_converted_data",
+          "description": "Reads the HDF5 dp dataset without an explicit dtype cast."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/io_handles.py",
+          "line": 38,
+          "symbol": "PtychographyDataset.__init__",
+          "description": "Converts the diffraction array to a tensor without specifying a replacement dtype."
+        }
+      ],
+      "assumptions": [
+        "The host tensor transferred during reconstruction has the same element width as the loaded diffraction array."
+      ],
+      "confidence": "high",
+      "human_decision": null
+    },
+    {
+      "input_id": "probe_element_width",
+      "display_name": "Stored probe element width",
+      "symbol": "b_Cin",
+      "classification": "operational_parameter",
+      "data_type": "positive integer",
+      "units": "bytes per complex element",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": null,
+      "model_input": false,
+      "affects": [
+        "probe storage-read bytes"
+      ],
+      "exclusion_reason": "This runtime HDF5 dtype property is used only for byte accounting and is not one of the four selected workload model inputs.",
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 95,
+          "symbol": "load_converted_data",
+          "description": "Reads the complete probe dataset using its stored HDF5 dtype."
+        },
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 111,
+          "symbol": "load_converted_data",
+          "description": "The loaded probe is subsequently converted to the configured complex reconstruction dtype."
+        }
+      ],
+      "assumptions": [],
+      "confidence": "high",
+      "human_decision": null
+    },
+    {
+      "input_id": "position_element_width",
+      "display_name": "Stored position-coordinate width",
+      "symbol": "b_P",
+      "classification": "operational_parameter",
+      "data_type": "positive integer",
+      "units": "bytes per coordinate",
+      "valid_domain": {
+        "minimum": 1
+      },
+      "default_value": null,
+      "model_input": false,
+      "affects": [
+        "position storage-read bytes"
+      ],
+      "exclusion_reason": "This runtime HDF5 dtype property is used only for byte accounting and is not one of the four selected workload model inputs.",
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 97,
+          "symbol": "load_converted_data",
+          "description": "Reads the y and x coordinate arrays and stacks them."
+        }
+      ],
+      "assumptions": [
+        "The y and x coordinate arrays use the same element width."
+      ],
+      "confidence": "high",
+      "human_decision": null
+    }
+  ],
+  "execution_phases": [
+    {
+      "phase_id": "load_hdf5",
+      "phase_type": "input_io",
+      "description": "Read R square diffraction images, one square single-mode probe, two R-element position arrays, and a pixel-size scalar from two HDF5 files.",
+      "major": true,
+      "included_in_scope": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 85,
+          "symbol": "load_converted_data",
+          "description": "Implements the selected input storage reads."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "phase_id": "preprocess_setup",
+      "phase_type": "preprocessing",
+      "description": "Convert positions to pixels, optionally center positions and rescale the probe, normalize probe rank, FFT-shift diffraction data, and initialize reconstruction state.",
+      "major": false,
+      "included_in_scope": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 102,
+          "symbol": "load_converted_data",
+          "description": "Performs probe rescaling, probe-rank normalization, and position conversion."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/io_handles.py",
+          "line": 38,
+          "symbol": "PtychographyDataset.__init__",
+          "description": "Creates the diffraction tensor and FFT-shifts it by default."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "phase_id": "batch_h2d",
+      "phase_type": "host_to_device",
+      "description": "With the default CPU-resident diffraction dataset, transfer each one-image PIE minibatch to the selected accelerator once per reconstruction iteration.",
+      "major": true,
+      "included_in_scope": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "src/ptychi/api/options/data.py",
+          "line": 40,
+          "symbol": "PtychographyDataOptions.save_data_on_device",
+          "description": "Diffraction data are not persistently stored on the accelerator by default."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/base.py",
+          "line": 338,
+          "symbol": "prepare_batch_data",
+          "description": "Moves each measured minibatch to the configured default device when device types differ."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "phase_id": "iterative_reconstruction",
+      "phase_type": "compute",
+      "description": "Perform I PIE traversals of R images. Each image update includes object-probe interaction, one forward two-dimensional FFT, detector-magnitude replacement, one inverse two-dimensional FFT, and object/probe update operations.",
+      "major": true,
+      "included_in_scope": true,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/base.py",
+          "line": 382,
+          "symbol": "IterativeReconstructor.run",
+          "description": "Nested iteration and DataLoader loops process every minibatch."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/pie.py",
+          "line": 89,
+          "symbol": "PIEReconstructor.compute_updates",
+          "description": "Runs the forward model for each PIE update."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/pie.py",
+          "line": 95,
+          "symbol": "PIEReconstructor.compute_updates",
+          "description": "Replaces propagated magnitude and performs backward propagation."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/propagate.py",
+          "line": 140,
+          "symbol": "FourierPropagator.propagate_forward",
+          "description": "Far-field forward propagation executes a two-dimensional FFT."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/propagate.py",
+          "line": 144,
+          "symbol": "FourierPropagator.propagate_backward",
+          "description": "Backward propagation executes a two-dimensional inverse FFT."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "phase_id": "output_suppressed",
+      "phase_type": "output_io",
+      "description": "Output tensor copies and NPZ writing are disabled by --no-save-output and excluded from the I/O model.",
+      "major": false,
+      "included_in_scope": false,
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 384,
+          "symbol": "run_single",
+          "description": "Returns before copying or saving reconstruction results when --no-save-output is set."
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "derived_quantities": [
+    {
+      "quantity_id": "effective_pie_batch_size",
+      "symbol": "B_eff",
+      "units": "images",
+      "expression": "1",
+      "depends_on": [],
+      "assumptions": [
+        "The selected scripts/run_ptychi.py PIE path is used.",
+        "B is accepted by the CLI but overridden for PIE."
+      ],
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "scripts/run_ptychi.py",
+          "line": 195,
+          "symbol": "make_options",
+          "description": "Sets the PIE reconstructor batch size to one."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "quantity_id": "pie_batches_per_iteration",
+      "symbol": "Q",
+      "units": "minibatches per iteration",
+      "expression": "R",
+      "depends_on": [
+        "R"
+      ],
+      "assumptions": [
+        "B_eff=1 and no images are dropped."
+      ],
+      "evidence": [
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/base.py",
+          "line": 309,
+          "symbol": "IterativeReconstructor.build_dataloader",
+          "description": "Uses the configured reconstructor batch size."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/base.py",
+          "line": 385,
+          "symbol": "IterativeReconstructor.run",
+          "description": "Processes every DataLoader minibatch in each iteration."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "quantity_id": "square_fft_flops",
+      "symbol": "F_FFT2",
+      "units": "FLOPs per complex two-dimensional FFT",
+      "expression": "10*N^2*log2(N)",
+      "depends_on": [
+        "N"
+      ],
+      "assumptions": [
+        "This is the repository's theoretical FFT convention.",
+        "It is an algorithmic estimate rather than a backend-executed instruction count."
+      ],
+      "evidence": [
+        {
+          "source_type": "repository_model",
+          "path": "modeling_exp/modeling_analysis.ipynb",
+          "line": 574,
+          "symbol": "FFT2_flops",
+          "description": "Defines FFT2_flops(N) as 10*N^2*log2(N)."
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "quantity_id": "pie_flops_per_image_iteration",
+      "symbol": "F_PIE",
+      "units": "FLOPs per image per iteration",
+      "expression": "2*F_FFT2+80*N^2",
+      "depends_on": [
+        "F_FFT2",
+        "N"
+      ],
+      "assumptions": [
+        "PIE uses two FFT-equivalents per image update: one forward FFT and one inverse FFT.",
+        "The repository's approximate PIE elementwise coefficient is 80 FLOPs per pixel per image update.",
+        "The configuration is planar, far-field, square, single coherent mode, and single OPR mode.",
+        "The elementwise coefficient is an aggregate modeling assumption rather than an exact source-level operation count."
+      ],
+      "evidence": [
+        {
+          "source_type": "repository_model",
+          "path": "modeling_exp/modeling_analysis.ipynb",
+          "line": 100,
+          "symbol": "ALGORITHM_FLOP_PARAMS",
+          "description": "Records PIE coefficients q_fft=2 and q_elem=80."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/pie.py",
+          "line": 89,
+          "symbol": "PIEReconstructor.compute_updates",
+          "description": "PIE invokes forward propagation for each image update."
+        },
+        {
+          "source_type": "source",
+          "path": "src/ptychi/reconstructors/pie.py",
+          "line": 100,
+          "symbol": "PIEReconstructor.compute_updates",
+          "description": "PIE invokes backward propagation after magnitude replacement."
+        }
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "compute_model": {
+    "terms": [
+      {
+        "term_id": "pie_reconstruction_flops",
+        "phase_id": "iterative_reconstruction",
+        "operation": "PIE forward and inverse FFTs plus aggregate elementwise reconstruction updates",
+        "quantity_type": "algorithmic_flops",
+        "units": "FLOPs",
+        "expression": "R*I*F_PIE",
+        "depends_on": [
+          "R",
+          "I",
+          "F_PIE"
+        ],
+        "assumptions": [
+          "Each of the R images is updated once in each of I iterations.",
+          "Inputs are square N by N arrays.",
+          "There is one coherent probe mode and one OPR mode.",
+          "The object is planar and free-space propagation is far-field Fourier propagation.",
+          "The formula includes all I iterations and therefore scales linearly with the requested iteration count.",
+          "B does not appear because the selected PIE entry point forces B_eff=1."
+        ],
+        "evidence": [
+          {
+            "source_type": "repository_model",
+            "path": "modeling_exp/modeling_analysis.ipynb",
+            "line": 576,
+            "symbol": "F_recon",
+            "description": "Defines reconstruction work as image count times iteration count times per-image, per-iteration work."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/base.py",
+            "line": 382,
+            "symbol": "IterativeReconstructor.run",
+            "description": "Executes the outer iteration loop I times."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/base.py",
+            "line": 385,
+            "symbol": "IterativeReconstructor.run",
+            "description": "Traverses all DataLoader minibatches in every iteration."
+          }
+        ],
+        "confidence": "medium",
+        "validation_required": true
+      },
+      {
+        "term_id": "pie_update_count",
+        "phase_id": "iterative_reconstruction",
+        "operation": "PIE one-image update invocations",
+        "quantity_type": "operation_count",
+        "units": "updates",
+        "expression": "I*Q",
+        "depends_on": [
+          "I",
+          "Q"
+        ],
+        "assumptions": [
+          "Q=R because PIE forces a one-image effective batch size."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/base.py",
+            "line": 388,
+            "symbol": "IterativeReconstructor.run",
+            "description": "Calls run_minibatch once for every DataLoader minibatch."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/pie.py",
+            "line": 67,
+            "symbol": "PIEReconstructor.run_minibatch",
+            "description": "Implements one PIE update for the current minibatch."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": false
+      },
+      {
+        "term_id": "preprocessing_runtime_work",
+        "phase_id": "preprocess_setup",
+        "operation": "Probe rescaling, diffraction FFT shift, tensor conversion, position conversion, and reconstruction initialization",
+        "quantity_type": "unknown_runtime_work",
+        "units": "FLOPs",
+        "expression": null,
+        "depends_on": [
+          "R",
+          "N"
+        ],
+        "assumptions": [
+          "Probe rescaling and diffraction FFT shifting remain enabled by default.",
+          "This one-time work is not included in the iterative PIE FLOP total."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 102,
+            "symbol": "load_converted_data",
+            "description": "Rescales the probe by default."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/io_handles.py",
+            "line": 39,
+            "symbol": "PtychographyDataset.__init__",
+            "description": "FFT-shifts the complete diffraction tensor by default."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": true
+      },
+      {
+        "term_id": "pie_implementation_executed_flops",
+        "phase_id": "iterative_reconstruction",
+        "operation": "Actual PyTorch FFTs, reductions, patch extraction and placement, allocations, loss tracking, and conditional object/probe updates",
+        "quantity_type": "executed_flops",
+        "units": "FLOPs",
+        "expression": null,
+        "depends_on": [
+          "R",
+          "N",
+          "I"
+        ],
+        "assumptions": [
+          "Exact executed FLOPs depend on PyTorch, the FFT backend, tensor dtypes, enabled object/probe updates, and runtime implementation choices.",
+          "The theoretical algorithmic formula must not be interpreted as an exact hardware instruction count."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/pie.py",
+            "line": 103,
+            "symbol": "PIEReconstructor.compute_updates",
+            "description": "Allocates an object-sized update tensor and performs patch-placement operations."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/pie.py",
+            "line": 107,
+            "symbol": "PIEReconstructor.compute_updates",
+            "description": "Object-update work is conditional on optimization state."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/pie.py",
+            "line": 135,
+            "symbol": "PIEReconstructor.compute_updates",
+            "description": "Probe-update work is conditional on probe optimization state."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": true
+      }
+    ],
+    "total_algorithmic_flops_expression": "R*I*N^2*(20*log2(N)+80)",
+    "unresolved_work": [
+      "The PIE elementwise coefficient of 80 FLOPs per pixel is a repository modeling assumption and has not been replaced by an exact operator-by-operator count.",
+      "The exact implementation-executed FLOPs depend on FFT backend algorithms, dtype, probe optimization state, object/probe update branches, patch-placement kernels, reductions, and framework overhead.",
+      "One-time probe rescaling, diffraction FFT shifting, tensor conversion, and initialization FLOPs remain unresolved and are excluded from the total iterative formula.",
+      "The requested batch input B is overridden to one by the selected PIE entry point. Modeling a PIE implementation in which B changes the effective batch shape requires a different entry point or source modification.",
+      "The radix-based FFT expression may differ from actual backend work, especially when N is not a power of two."
+    ]
+  },
+  "io_model": {
+    "terms": [
+      {
+        "term_id": "diffraction_hdf5_read",
+        "phase_id": "load_hdf5",
+        "direction": "storage_read",
+        "units": "bytes",
+        "expression": "R*N^2*b_I",
+        "depends_on": [
+          "R",
+          "N",
+          "b_I"
+        ],
+        "data_type": "stored HDF5 diffraction intensity dtype",
+        "assumptions": [
+          "The dp dataset has shape R by N by N.",
+          "The expression is logical array payload and excludes HDF5 metadata, chunk indexes, filesystem caching, and read amplification."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 91,
+            "symbol": "load_converted_data",
+            "description": "Reads the complete dp dataset with f['dp'][...]."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": false
+      },
+      {
+        "term_id": "single_mode_probe_hdf5_read",
+        "phase_id": "load_hdf5",
+        "direction": "storage_read",
+        "units": "bytes",
+        "expression": "N^2*b_Cin",
+        "depends_on": [
+          "N",
+          "b_Cin"
+        ],
+        "data_type": "stored HDF5 complex probe dtype",
+        "assumptions": [
+          "The selected input has exactly one coherent mode and one OPR mode.",
+          "Leading singleton dimensions do not add payload elements.",
+          "The expression excludes HDF5 and filesystem metadata."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 95,
+            "symbol": "load_converted_data",
+            "description": "Reads the complete probe dataset."
+          },
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 104,
+            "symbol": "load_converted_data",
+            "description": "Adds an OPR leading dimension to a three-dimensional stored probe."
+          }
+        ],
+        "confidence": "medium",
+        "validation_required": true
+      },
+      {
+        "term_id": "positions_hdf5_read",
+        "phase_id": "load_hdf5",
+        "direction": "storage_read",
+        "units": "bytes",
+        "expression": "2*R*b_P",
+        "depends_on": [
+          "R",
+          "b_P"
+        ],
+        "data_type": "stored HDF5 position-coordinate dtype",
+        "assumptions": [
+          "Both coordinate arrays have length R and use the same element width."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 97,
+            "symbol": "load_converted_data",
+            "description": "Reads probe_position_y_m and probe_position_x_m."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": false
+      },
+      {
+        "term_id": "pixel_size_scalar_read",
+        "phase_id": "load_hdf5",
+        "direction": "storage_read",
+        "units": "bytes",
+        "expression": null,
+        "depends_on": [],
+        "data_type": "HDF5 numeric attribute",
+        "assumptions": [
+          "The scalar and its metadata are negligible relative to the diffraction payload and are excluded from the total logical input-payload expression."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 96,
+            "symbol": "load_converted_data",
+            "description": "Reads object.pixel_height_m from an HDF5 attribute."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": false
+      },
+      {
+        "term_id": "repeated_diffraction_h2d",
+        "phase_id": "batch_h2d",
+        "direction": "host_to_device",
+        "units": "bytes",
+        "expression": "I*R*N^2*b_I",
+        "depends_on": [
+          "I",
+          "R",
+          "N",
+          "b_I"
+        ],
+        "data_type": "host diffraction tensor dtype",
+        "assumptions": [
+          "Execution uses CUDA or XPU rather than CPU.",
+          "The default save_data_on_device=false remains in effect.",
+          "Each image is transferred once in each of I iterations.",
+          "PIE transfers one image per minibatch because B_eff=1.",
+          "B changes neither transfer granularity nor total transfer payload in the selected implementation.",
+          "Protocol overhead, pinned-memory staging, DataLoader copies, and device-memory traffic are excluded."
+        ],
+        "evidence": [
+          {
+            "source_type": "source",
+            "path": "src/ptychi/api/options/data.py",
+            "line": 40,
+            "symbol": "PtychographyDataOptions.save_data_on_device",
+            "description": "Diffraction data remain CPU-resident by default."
+          },
+          {
+            "source_type": "source",
+            "path": "src/ptychi/reconstructors/base.py",
+            "line": 338,
+            "symbol": "prepare_batch_data",
+            "description": "Moves each measured minibatch to the accelerator when its device differs."
+          },
+          {
+            "source_type": "source",
+            "path": "scripts/run_ptychi.py",
+            "line": 195,
+            "symbol": "make_options",
+            "description": "Forces PIE minibatches to contain one image."
+          }
+        ],
+        "confidence": "high",
+        "validation_required": true
+      }
+    ],
+    "total_input_bytes_expression": "R*N^2*b_I+N^2*b_Cin+2*R*b_P",
+    "total_output_bytes_expression": "0",
+    "unresolved_io": [
+      "Runtime inspection of the HDF5 datasets is required to assign b_I, b_Cin, and b_P.",
+      "HDF5 metadata, chunk indexes, compression effects, filesystem block allocation, cache behavior, and read amplification are excluded.",
+      "The pixel-size attribute payload and metadata are not included in the total input expression.",
+      "Initial placement or conversion of the probe, object, masks, and reconstruction state may cause additional host-to-device transfers depending on PyTorch default-device behavior.",
+      "DataLoader index tensors, staging buffers, framework-internal copies, and transfer protocol overhead are not included.",
+      "Device-memory traffic from FFTs, elementwise operations, object-patch extraction and placement, reductions, and optimizer updates is separate from host-to-device traffic and remains unmodeled.",
+      "Output device-to-host transfer and storage writes are intentionally excluded because the selected invocation uses --no-save-output."
+    ]
+  },
+  "synthetic_input_requirements": {
+    "can_be_generated": "yes",
+    "requirements": [
+      {
+        "shape": "An HDF5 dataset named 'dp' with shape (R,N,N).",
+        "dtype": "A finite real intensity dtype whose element width is recorded as b_I.",
+        "value_distribution": "Nonnegative diffraction intensities with nonzero total power when default probe rescaling is enabled.",
+        "metadata": "Stored in the diffraction HDF5 file selected by the entry point.",
+        "semantic_constraints": "Every image must be square N by N and suitable for the single-mode probe extent."
+      },
+      {
+        "shape": "A probe dataset representing one coherent mode and one OPR mode with N-by-N spatial dimensions; a stored shape (1,N,N) is expanded to (1,1,N,N).",
+        "dtype": "Finite complex dtype whose stored element width is b_Cin and which is convertible to torch.complex64.",
+        "value_distribution": "Finite complex values with nonzero Fourier-domain power.",
+        "metadata": "Stored as dataset 'probe' in the parameter HDF5 file.",
+        "semantic_constraints": "No additional coherent or OPR modes are permitted in the selected characterization."
+      },
+      {
+        "shape": "Datasets 'probe_position_y_m' and 'probe_position_x_m', each with shape (R,).",
+        "dtype": "Finite floating-point coordinates with common element width b_P.",
+        "value_distribution": "Positions that define valid object patches after conversion from meters to pixels.",
+        "metadata": "The parameter file must contain group 'object' with a finite, strictly positive numeric attribute 'pixel_height_m'.",
+        "semantic_constraints": "Both coordinate arrays must contain exactly one coordinate for every diffraction image."
+      }
+    ],
+    "unresolved_requirements": [
+      "A generator must choose whether the diffraction intensities are physically simulated coherent diffraction or only structurally valid nonnegative data.",
+      "Numerical stability constraints for PIE and default probe rescaling are not completely specified.",
+      "A reproducibility seed and deterministic synthetic-generation procedure must be selected if repeatable generated inputs are required.",
+      "This characterization does not create synthetic input."
+    ]
+  },
+  "validation": {
+    "formula_symbols_resolved": true,
+    "units_consistent": true,
+    "double_counting_checked": true,
+    "issues": [
+      {
+        "severity": "info",
+        "code": "HUMAN_SCOPE_APPLIED",
+        "message": "The model is restricted to PIE, square inputs, one coherent mode, one OPR mode, input reads, repeated diffraction host-to-device transfer, and no output saving.",
+        "related_ids": [
+          "cli_run_ptychi_pie",
+          "pie_reconstruction_flops",
+          "repeated_diffraction_h2d",
+          "output_suppressed"
+        ]
+      },
+      {
+        "severity": "info",
+        "code": "ITERATION_SCALING_EXPLICIT",
+        "message": "Total algorithmic FLOPs and repeated diffraction host-to-device bytes both scale linearly with I.",
+        "related_ids": [
+          "iterations",
+          "pie_reconstruction_flops",
+          "repeated_diffraction_h2d"
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "PIE_BATCH_INPUT_OVERRIDDEN",
+        "message": "B is retained as requested, but scripts/run_ptychi.py forces the selected PIE path to B_eff=1. Consequently B does not affect the current FLOP or byte expressions.",
+        "related_ids": [
+          "requested_batch_size",
+          "effective_pie_batch_size",
+          "pie_update_count"
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "APPROXIMATE_PIE_FLOP_COEFFICIENT",
+        "message": "The two FFT-equivalents are supported by the forward and backward propagation path, but the 80-FLOP elementwise coefficient remains an approximate repository modeling assumption.",
+        "related_ids": [
+          "pie_flops_per_image_iteration",
+          "pie_reconstruction_flops"
+        ]
+      },
+      {
+        "severity": "warning",
+        "code": "RUNTIME_DTYPES_REQUIRED",
+        "message": "Storage-read and host-to-device byte formulas require runtime dtype widths b_I, b_Cin, and b_P.",
+        "related_ids": [
+          "diffraction_element_width",
+          "probe_element_width",
+          "position_element_width"
+        ]
+      },
+      {
+        "severity": "info",
+        "code": "IO_CLASSES_SEPARATED",
+        "message": "Storage reads and host-to-device transfer are modeled separately; device-memory traffic remains explicitly unresolved.",
+        "related_ids": [
+          "diffraction_hdf5_read",
+          "repeated_diffraction_h2d"
+        ]
+      },
+      {
+        "severity": "info",
+        "code": "OUTPUT_IO_EXCLUDED",
+        "message": "The selected invocation suppresses result copies and NPZ writes, so modeled output bytes are zero.",
+        "related_ids": [
+          "output_suppressed"
+        ]
+      },
+      {
+        "severity": "info",
+        "code": "NO_PEAK_PERFORMANCE_AS_WORK",
+        "message": "No hardware peak throughput, measured performance, power, or energy value is used as application FLOPs.",
+        "related_ids": [
+          "pie_reconstruction_flops"
+        ]
+      }
+    ]
+  },
+  "review": {
+    "status": "approved",
+    "requested_decisions": [],
+    "reviewer": "Zhong Zheng",
+    "reviewed_at": "2026-07-30",
+    "decisions": [
+      {
+        "category": "context",
+        "decision": "Keep number of images, resolution, batch size, and iterations as model inputs. Only consider PIE with square inputs and one coherent mode. Include input read and host-to-device transfer, but exclude output saving. The total FLOPs formula must scale with the number of iterations."
+      }
+    ],
+    "notes": "Keep number of images, resolution, batch size, and iterations as model inputs. Only consider PIE with square inputs and one coherent mode. Include input read and host-to-device transfer, but exclude output saving. The total FLOPs formula must scale with the number of iterations."
+  }
+}

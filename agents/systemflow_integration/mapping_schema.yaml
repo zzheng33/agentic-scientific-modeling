@@ -1,0 +1,26 @@
+schema_version: systemflow-application-mapping-0.1
+status: awaiting_human_review
+application_id: string
+component_name: string
+model_input_mapping:
+  <exact model input id>:
+    source: message.fields | message.properties | component.parameters
+    key: string with units where applicable
+    transform: identity | int | float | tuple_int | list_int | str
+    rationale: string
+    evidence: list
+group_mapping:
+  <exact model grouping id>:
+    source: message.fields | message.properties | component.parameters
+    key: string
+    transform: identity | int | float | tuple_int | list_int | str
+    rationale: string
+    evidence: list
+output_mapping:
+  <exact fitted target id>:
+    destination: message.fields | message.properties | host.properties
+    key: string with units
+    rationale: string
+metadata_output_key: string
+assumptions: list
+requested_decisions: list

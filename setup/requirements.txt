@@ -1,0 +1,10 @@
+openai>=2.48.0,<3
+langgraph>=1.0,<2
+langgraph-checkpoint-sqlite>=3,<4
+pydantic>=2.12,<3
+PyYAML>=6,<7
+numpy>=2.0,<3
+h5py>=3.11,<4
+pandas>=2.2,<4
+networkx>=3.2,<4
+scipy>=1.13,<2

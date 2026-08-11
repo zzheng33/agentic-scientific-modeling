@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+agentic_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+agentic_python="$agentic_root/setup/venv/bin/python"
+
+if [[ ! -x "$agentic_python" ]]; then
+  echo "error: virtual environment not found; run setup/setup_venv.sh first" >&2
+  exit 1
+fi
+
+cd "$agentic_root"
+exec "$agentic_python" -m cli.main "$@"

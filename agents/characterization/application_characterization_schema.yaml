@@ -1,0 +1,218 @@
+# Output contract for the Application Characterization Agent.
+# The first output is a draft for human review; an approved artifact is produced
+# only after explicit human confirmation.
+
+schema_version: "0.1"
+
+required_top_level_keys:
+  - analysis
+  - application
+  - entrypoints
+  - candidate_inputs
+  - execution_phases
+  - derived_quantities
+  - compute_model
+  - io_model
+  - synthetic_input_requirements
+  - validation
+  - review
+
+analysis:
+  analysis_id: string
+  created_at: string
+  agent_version: string
+  source_revision: string_or_null
+  status:
+    allowed:
+      - draft
+      - awaiting_human_review
+      - needs_revision
+      - approved
+
+application:
+  name: string
+  source_path: string
+  languages: list
+  frameworks: list
+  summary: string
+  analysis_boundary: string
+
+entrypoints:
+  type: list
+  item_fields:
+    entrypoint_id: string
+    kind: string
+    path: string
+    symbol: string_or_null
+    invocation: string_or_null
+    selected: boolean
+    evidence: list
+    confidence: confidence
+
+candidate_inputs:
+  type: list
+  item_fields:
+    input_id: string
+    display_name: string
+    symbol: string
+    classification:
+      allowed:
+        - scientific_input
+        - problem_shape
+        - algorithm_parameter
+        - execution_parameter
+        - hardware_parameter
+        - reproducibility_parameter
+        - operational_parameter
+    data_type: string
+    units: string_or_null
+    valid_domain: mapping_or_null
+    default_value: any
+    model_input: boolean
+    affects: list
+    exclusion_reason: string_or_null
+    evidence: list
+    assumptions: list
+    confidence: confidence
+    human_decision: pending_or_null
+
+execution_phases:
+  type: list
+  item_fields:
+    phase_id: string
+    phase_type:
+      allowed:
+        - initialization
+        - input_io
+        - preprocessing
+        - host_to_device
+        - compute
+        - communication
+        - device_to_host
+        - postprocessing
+        - output_io
+    description: string
+    major: boolean
+    included_in_scope: boolean
+    evidence: list
+    confidence: confidence
+
+derived_quantities:
+  type: list
+  item_fields:
+    quantity_id: string
+    symbol: string
+    units: string
+    expression: string
+    depends_on: list
+    assumptions: list
+    evidence: list
+    confidence: confidence
+
+compute_model:
+  terms:
+    type: list
+    item_fields:
+      term_id: string
+      phase_id: string
+      operation: string
+      quantity_type:
+        allowed:
+          - algorithmic_flops
+          - executed_flops
+          - operation_count
+          - unknown_runtime_work
+      units: string
+      expression: string_or_null
+      depends_on: list
+      assumptions: list
+      evidence: list
+      confidence: confidence
+      validation_required: boolean
+  total_algorithmic_flops_expression: string_or_null
+  unresolved_work: list
+
+io_model:
+  terms:
+    type: list
+    item_fields:
+      term_id: string
+      phase_id: string
+      direction:
+        allowed:
+          - storage_read
+          - storage_write
+          - host_to_device
+          - device_to_host
+          - network_send
+          - network_receive
+          - other
+      units: bytes
+      expression: string_or_null
+      depends_on: list
+      data_type: string_or_null
+      assumptions: list
+      evidence: list
+      confidence: confidence
+      validation_required: boolean
+  total_input_bytes_expression: string_or_null
+  total_output_bytes_expression: string_or_null
+  unresolved_io: list
+
+synthetic_input_requirements:
+  can_be_generated: yes_no_unknown
+  requirements:
+    - shape
+    - dtype
+    - value_distribution
+    - metadata
+    - semantic_constraints
+  unresolved_requirements: list
+
+validation:
+  formula_symbols_resolved: boolean
+  units_consistent: boolean
+  double_counting_checked: boolean
+  issues:
+    type: list
+    item_fields:
+      severity: error_warning_info
+      code: string
+      message: string
+      related_ids: list
+
+review:
+  status:
+    allowed:
+      - awaiting_human_review
+      - needs_revision
+      - approved
+  requested_decisions: list
+  reviewer: string_or_null
+  reviewed_at: string_or_null
+  decisions: list
+  notes: string_or_null
+
+shared_types:
+  confidence:
+    allowed:
+      - high
+      - medium
+      - low
+      - unknown
+  evidence_item:
+    source_type: string
+    path: string_or_null
+    line: integer_or_null
+    symbol: string_or_null
+    description: string
+
+validation_rules:
+  - every formula symbol must resolve to an input, constant, or derived quantity
+  - every included model input must affect at least one modeled quantity or include a justification
+  - high-confidence claims must include source evidence
+  - runtime-dependent work must be explicit
+  - hardware peak FLOPs must not be reported as application workload FLOPs
+  - approved status requires explicit human approval
+  - material revisions to an approved artifact must reset review status
+

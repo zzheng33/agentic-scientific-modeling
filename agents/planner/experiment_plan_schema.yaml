@@ -1,0 +1,143 @@
+# Output contract for a single-application system-level experiment plan.
+
+schema_version: "0.2"
+
+required_top_level_keys:
+  - plan
+  - source_characterization
+  - objective
+  - variables
+  - algorithm_groups
+  - synthetic_input
+  - hardware
+  - measurement
+  - matrix_design
+  - execution
+  - validation
+  - approval
+
+plan:
+  plan_id: string
+  created_at: string
+  status: draft_or_awaiting_human_review
+  summary: string
+
+source_characterization:
+  analysis_id: string
+  application_name: string
+  status: approved
+  workload_formulas:
+    total_flops: string_or_null
+    total_input_bytes: string_or_null
+    total_output_bytes: string_or_null
+
+objective:
+  predict: list
+  as_function_of: list
+  system_boundary: string
+  intended_use: string
+
+variables:
+  type: list
+  item_fields:
+    input_id: string
+    symbol: string
+    role:
+      allowed: [sweep, fixed, invariance_check]
+    sampling_strategy: string
+    values: list
+    fixed_value: any
+    intended_domain: mapping_or_null
+    rationale: string
+
+algorithm_groups:
+  type: list
+  description: Separate model groups that reuse the same input-space base points.
+  item_fields:
+    algorithm_group_id: string
+    display_name: string
+
+synthetic_input:
+  mode: specification_only
+  seed: integer
+  dataset_identity: list of approved input_id values that change file contents
+  requirements: list
+  unresolved_requirements: list
+  planned_artifacts: list
+
+hardware:
+  allowed_catalog:
+    - A100
+    - H100
+    - H200
+    - B200
+    - MI300A
+    - MI300X
+    - INTEL_MAX
+  targets:
+    type: list
+    item_fields:
+      hardware_id: string
+      accelerator: string
+      vendor: string
+      notes: string_or_null
+
+measurement:
+  boundary: string
+  warmup_runs: integer
+  measured_repetitions: integer
+  synchronization: list
+  metrics:
+    type: list
+    item_fields:
+      metric_id: string
+      units: string
+      required: boolean
+      collection_method: string
+  power:
+    target: string
+    sampling_interval_ms: number_or_null
+    clock_alignment_required: boolean
+  metadata_to_record: list
+
+matrix_design:
+  strategy: string
+  base_points:
+    type: list
+    item_fields:
+      point_id: string
+      inputs: mapping
+      rationale: string
+  estimated_total_runs: integer
+
+execution:
+  mode: dry_run
+  max_total_runs: integer
+  skip_existing: boolean
+  allow_rerun: boolean
+  runner_status: blocked_until_approval
+
+validation:
+  issues:
+    type: list
+    item_fields:
+      severity: ERROR_WARNING_INFO
+      code: string
+      message: string
+      related_ids: list
+
+approval:
+  status: awaiting_human_review
+  requested_decisions: list
+  reviewer: string_or_null
+  reviewed_at: string_or_null
+  notes: string_or_null
+
+validation_rules:
+  - source characterization must be approved
+  - every approved model input must be sweep, fixed, or invariance_check
+  - every base point must assign every approved model input
+  - hardware targets must be selected from the allowed catalog
+  - run count is computed deterministically
+  - execution defaults to dry_run
+  - runner remains blocked until explicit human approval

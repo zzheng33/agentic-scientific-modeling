@@ -1,0 +1,11 @@
+{
+  "plan_id": "pty-chi-pie-pilot-2026-07-30-01",
+  "status": "awaiting_human_review",
+  "variable_decisions": [],
+  "hardware_decisions": [],
+  "measurement_decisions": [],
+  "matrix_decisions": [],
+  "additional_context": null,
+  "reviewer": null,
+  "reviewed_at": null
+}

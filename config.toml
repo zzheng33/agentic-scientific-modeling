@@ -1,0 +1,38 @@
+[openai]
+api_key = "zhong.zheng"
+base_url = "https://apps.inside.anl.gov/argoapi/v1"
+model = "GPT-5.6 Sol"
+reasoning_effort = "high"
+
+[agent]
+max_tool_rounds = 40
+
+[workflow]
+# Active workflow used by ./agentic status, resume, and continue.
+id = "ptychi_001"
+
+[application]
+# Absolute path, or a path relative to this config file.
+path = "../pty-chi/"
+
+[planner]
+characterization_path = "agents/characterization/output/application_characterization.yaml"
+output_path = "agents/planner/output"
+max_tool_rounds = 40
+max_total_runs = 100
+default_hardware = ["A100"]
+repetitions = 3
+
+[benchmark]
+# Must point to a Python environment that can import both torch and ptychi.
+python_executable = "/usr/bin/python3"
+runner_script = "/home/zzhong/pty-chi/scripts/run_ptychi.py"
+monitor_script = "/home/zzhong/PtychoPINN/scripts/monitor_gpu_power.py"
+device = "cuda"
+vendor = "nvidia"
+devices = "0"
+power_interval_s = 0.2
+continue_on_error = true
+
+[systemflow]
+path = "/home/zzhong/systemflow"

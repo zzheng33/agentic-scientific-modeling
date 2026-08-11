@@ -1,0 +1,48 @@
+schema_version: "0.1"
+
+required_top_level_keys:
+  - schema_version
+  - analysis_id
+  - application
+  - entrypoints
+  - candidate_inputs
+  - requested_decisions
+
+application:
+  name: string
+  summary: string
+
+entrypoints:
+  type: list
+  item_fields:
+    entrypoint_id: string
+    kind: string
+    path: string
+    symbol: string_or_null
+    invocation: string_or_null
+    selected: boolean
+    evidence: list
+    confidence: high_medium_low_unknown
+
+candidate_inputs:
+  type: list
+  item_fields:
+    input_id: string
+    display_name: string
+    symbol: string
+    classification: scientific_input_problem_shape_algorithm_parameter_execution_parameter_hardware_parameter_reproducibility_parameter_operational_parameter
+    data_type: string
+    units: string_or_null
+    valid_domain: mapping_or_null
+    default_value: any
+    model_input: boolean
+    affects: list
+    exclusion_reason: string_or_null
+    evidence: list
+    assumptions: list
+    confidence: high_medium_low_unknown
+    human_decision: string_or_null
+
+requested_decisions:
+  type: list
+  items: string_or_mapping

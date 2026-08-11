@@ -1,0 +1,473 @@
+{
+  "schema_version": "0.2",
+  "plan": {
+    "plan_id": "pty-chi-pie-pilot-2026-07-30-01",
+    "created_at": "2026-07-30T00:00:00Z",
+    "status": "awaiting_human_review",
+    "summary": "Reduced 12-point pilot for fitting end-to-end performance and accelerator-energy models for the approved pty-chi PIE path on one A100. The design sweeps R, N, and I over assumed pilot domains and uses a matched three-level check to verify that requested batch size B is invariant because PIE forces an effective batch size of one."
+  },
+  "source_characterization": {
+    "analysis_id": "pty-chi-characterization-2026-07-28-draft-01",
+    "application_name": "pty-chi",
+    "status": "approved",
+    "workload_formulas": {
+      "total_flops": "R*I*N^2*(20*log2(N)+80)",
+      "total_input_bytes": "R*N^2*b_I+N^2*b_Cin+2*R*b_P",
+      "total_output_bytes": "0"
+    }
+  },
+  "objective": {
+    "predict": [
+      "end-to-end latency",
+      "accelerator power",
+      "accelerator energy",
+      "throughput",
+      "peak accelerator memory"
+    ],
+    "as_function_of": [
+      "R",
+      "N",
+      "B",
+      "I"
+    ],
+    "system_boundary": "The selected boundary is scripts/run_ptychi.py invoked with --algorithm pie and --no-save-output on an accelerator, using square R-by-N-by-N diffraction data, a planar object, far-field Fourier propagation, one coherent probe mode, and one OPR mode. The four workload model inputs requested by review are number of images R, resolution N, requested batch size B, and reconstruction iterations I. The CLI calls iterations epochs. PIE overrides B and executes one image per minibatch, so B is retained as a requested model input but does not change the selected implementation's leading FLOPs, total transferred payload, or actual batch size.",
+    "intended_use": "Fit an initial system-level model for the selected pty-chi PIE implementation on an A100, quantify setup and iterative scaling with R, N, and I, and empirically verify the characterized invariance to requested batch size B."
+  },
+  "variables": [
+    {
+      "input_id": "image_count",
+      "symbol": "R",
+      "role": "sweep",
+      "sampling_strategy": "Log-spaced boundary and interior pilot levels over an assumed prediction domain.",
+      "values": [
+        64,
+        256,
+        1024
+      ],
+      "fixed_value": null,
+      "intended_domain": {
+        "minimum": 64,
+        "maximum": 1024,
+        "units": "images",
+        "status": "assumed_for_pilot"
+      },
+      "rationale": "R appears linearly in iterative FLOPs, update count, diffraction input bytes, position bytes, and repeated host-to-device bytes. Three approximately logarithmic levels expose scaling without a full Cartesian product."
+    },
+    {
+      "input_id": "resolution",
+      "symbol": "N",
+      "role": "sweep",
+      "sampling_strategy": "Selected power-of-two resolution levels spanning boundaries and interiors.",
+      "values": [
+        32,
+        64,
+        128,
+        256
+      ],
+      "fixed_value": null,
+      "intended_domain": {
+        "minimum": 32,
+        "maximum": 256,
+        "units": "pixels per spatial dimension",
+        "status": "assumed_for_pilot"
+      },
+      "rationale": "N controls the N-squared data footprint and the N-squared-log-N FFT term. Power-of-two levels reduce FFT radix variability while providing enough variation to identify nonlinear resolution scaling."
+    },
+    {
+      "input_id": "requested_batch_size",
+      "symbol": "B",
+      "role": "invariance_check",
+      "sampling_strategy": "Matched three-level check at identical R, N, and I; use the characterized CLI default at all other points.",
+      "values": [
+        1,
+        32,
+        1000
+      ],
+      "fixed_value": null,
+      "intended_domain": {
+        "selected_levels": [
+          1,
+          32,
+          1000
+        ],
+        "units": "requested images",
+        "effective_value": 1,
+        "status": "characterized_invariance"
+      },
+      "rationale": "B remains an approved model input, but the selected PIE entry point unconditionally forces B_eff=1. A matched check tests that latency, power, energy, throughput, and memory do not materially change with requested B; sweeping B throughout the matrix would add runs without formula support."
+    },
+    {
+      "input_id": "iterations",
+      "symbol": "I",
+      "role": "sweep",
+      "sampling_strategy": "Logarithmic boundary and interior levels, excluding zero from this pilot so throughput remains meaningful.",
+      "values": [
+        1,
+        10,
+        100
+      ],
+      "fixed_value": null,
+      "intended_domain": {
+        "minimum": 1,
+        "maximum": 100,
+        "units": "iterations",
+        "status": "assumed_for_pilot"
+      },
+      "rationale": "I linearly controls iterative FLOPs, PIE update count, and repeated diffraction host-to-device bytes. Levels 1, 10, and 100 help separate one-time setup cost from steady iterative scaling."
+    }
+  ],
+  "synthetic_input": {
+    "mode": "specification_only",
+    "seed": 20260730,
+    "requirements": [
+      "Create one logical input pair for every distinct (R,N) combination in the base-point matrix; points differing only in B or I must reuse identical input files.",
+      "The diffraction HDF5 file must contain dataset 'dp' with shape (R,N,N), dtype float32, and recorded b_I=4 bytes.",
+      "Diffraction values must be finite, nonnegative intensities with nonzero total power in every image. The planned generator should use deterministic far-field coherent diffraction from a fixed seeded synthetic complex object and a single probe rather than unconstrained random noise.",
+      "The parameter HDF5 file must contain dataset 'probe' with shape (1,N,N), dtype complex64, and recorded b_Cin=8 bytes. Loading may expand this to one OPR mode and one coherent mode with logical shape (1,1,N,N).",
+      "Probe values must be finite complex values with nonzero Fourier-domain power and must be convertible to torch.complex64.",
+      "The parameter HDF5 file must contain 'probe_position_y_m' and 'probe_position_x_m', each with shape (R,), dtype float32, and recorded b_P=4 bytes.",
+      "Positions must form a deterministic raster-like scan, truncated or repeated deterministically to exactly R locations, and must define valid object patches after conversion from meters to pixels.",
+      "The parameter file must contain group 'object' with a finite, strictly positive numeric attribute 'pixel_height_m'. Position coordinates and this attribute must use a consistent meter-to-pixel conversion.",
+      "All diffraction images and probe spatial dimensions must be square N-by-N. Detector cropping must be disabled or preserve the modeled N-by-N extent.",
+      "No additional coherent probe modes or OPR modes are permitted.",
+      "The manifest must record R, N, seed, generator version, dataset shapes, dtypes, byte widths, distributions, pixel_height_m, scan construction, checksums, and file paths.",
+      "Synthetic generation is specification-only in this plan; no large HDF5 dataset is to be generated during planning."
+    ],
+    "unresolved_requirements": [
+      "Human review must confirm whether deterministic physically simulated coherent diffraction is preferred over merely structural nonnegative synthetic intensity data.",
+      "The exact object amplitude and phase distributions, probe profile, scan spacing, and numerical scaling needed for stable PIE behavior require confirmation.",
+      "The repository-specific mapping from the CLI --dataset value to the diffraction and parameter HDF5 filenames must be verified before execution."
+    ],
+    "planned_artifacts": [
+      {
+        "artifact_id": "synthetic_manifest",
+        "path": "synthetic/pty-chi-pie/seed-20260730/manifest.json",
+        "description": "Small manifest containing generation specifications, matrix associations, metadata, and checksums."
+      },
+      {
+        "artifact_id": "diffraction_files",
+        "path": "synthetic/pty-chi-pie/seed-20260730/R{R}_N{N}/diffraction.h5",
+        "description": "One planned diffraction HDF5 file per distinct (R,N), containing dp."
+      },
+      {
+        "artifact_id": "parameter_files",
+        "path": "synthetic/pty-chi-pie/seed-20260730/R{R}_N{N}/parameters.h5",
+        "description": "One planned parameter HDF5 file per distinct (R,N), containing probe, position arrays, and object.pixel_height_m."
+      }
+    ]
+  },
+  "hardware": {
+    "allowed_catalog": [
+      "A100",
+      "H100",
+      "H200",
+      "B200",
+      "MI300A",
+      "MI300X",
+      "INTEL_MAX"
+    ],
+    "targets": [
+      {
+        "hardware_id": "a100-primary",
+        "accelerator": "A100",
+        "vendor": "NVIDIA",
+        "notes": "Uses the requested default hardware. Record the exact A100 memory capacity, PCIe or SXM form factor, power limit, clocks, and host interconnect at execution time."
+      }
+    ]
+  },
+  "measurement": {
+    "boundary": "Begin timing and power-window collection immediately before the selected run_single path starts the included HDF5 input reads. Include load_hdf5, preprocess_setup, reconstruction initialization, repeated one-image host-to-device transfers, and all I PIE traversals. End after the final reconstruction accelerator work has been explicitly synchronized and before any output tensor copy or output save. Invoke with --algorithm pie and --no-save-output. Python process startup and post-return teardown are outside the timed window.",
+    "warmup_runs": 1,
+    "measured_repetitions": 3,
+    "synchronization": [
+      "Use an accelerator synchronization immediately before opening the measured boundary so prior device work cannot enter the interval.",
+      "Use an accelerator synchronization after the final PIE reconstruction operation and before closing the measured boundary.",
+      "Align power samples to monotonic host timestamps marking the same measured boundary.",
+      "Reset framework peak-memory statistics after the pre-boundary synchronization and before the HDF5 read begins.",
+      "Run repetitions serially on an otherwise idle target and do not overlap measurements from different base points."
+    ],
+    "metrics": [
+      {
+        "metric_id": "end_to_end_latency",
+        "units": "seconds",
+        "required": true,
+        "collection_method": "Use a monotonic high-resolution host timer around the approved measurement boundary, including input reads, preprocessing, repeated H2D transfers, and reconstruction but excluding output copying and saving."
+      },
+      {
+        "metric_id": "accelerator_power",
+        "units": "watts",
+        "required": true,
+        "collection_method": "Sample A100 board power through NVML or nvidia-smi at the configured interval during the aligned measurement window; retain the time series and report mean and maximum sampled power without idle-power subtraction."
+      },
+      {
+        "metric_id": "accelerator_energy",
+        "units": "joules",
+        "required": true,
+        "collection_method": "Numerically integrate the aligned accelerator board-power samples over the end-to-end measurement window using trapezoidal integration; do not include host-system energy."
+      },
+      {
+        "metric_id": "throughput",
+        "units": "image_updates_per_second",
+        "required": true,
+        "collection_method": "Compute R*I divided by measured end-to-end latency. Also record algorithmic FLOP/s as a derived diagnostic using R*I*N^2*(20*log2(N)+80) divided by latency, without treating it as executed hardware FLOPs."
+      },
+      {
+        "metric_id": "peak_accelerator_memory",
+        "units": "bytes",
+        "required": true,
+        "collection_method": "Reset and read PyTorch CUDA peak allocated and peak reserved memory around the approved boundary, and sample NVML process/device memory where available. Preserve the separate readings and use the maximum observed in-window accelerator-memory value as the system-level peak."
+      }
+    ],
+    "power": {
+      "target": "accelerator board power for the selected A100 only",
+      "sampling_interval_ms": 20,
+      "clock_alignment_required": true
+    },
+    "metadata_to_record": [
+      "plan_id, point_id, repetition index, and hardware_id",
+      "exact command line and selected dataset identifier",
+      "requested R, N, B, and I",
+      "observed B_eff and observed minibatch/update count",
+      "input file paths, sizes, checksums, HDF5 shapes, dtypes, b_I, b_Cin, and b_P",
+      "synthetic seed and generator version",
+      "application source revision",
+      "Python, PyTorch, CUDA, cuFFT, driver, and NVML versions",
+      "A100 model, memory capacity, PCIe or SXM form factor, UUID, power limit, clock settings, and persistence mode",
+      "host CPU, host memory, operating system, filesystem, and accelerator interconnect",
+      "warmup count, cache policy, and whether files were served from the operating-system page cache",
+      "start and end monotonic timestamps and power-sample timestamps",
+      "mean, maximum, and full sampled accelerator-power series",
+      "peak allocated, peak reserved, and NVML-observed accelerator memory",
+      "exit status, warnings, exceptions, and out-of-memory events"
+    ]
+  },
+  "matrix_design": {
+    "strategy": "Reduced interaction-aware pilot using logarithmic R and I levels, selected power-of-two N levels, boundary combinations, interior points, and one matched B-invariance triplet. This replaces the 3-by-4-by-3-by-3 full factorial with 12 deterministic base points.",
+    "base_points": [
+      {
+        "point_id": "p01_b_invariance_1",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 64,
+          "requested_batch_size": 1,
+          "iterations": 10
+        },
+        "rationale": "First member of the matched requested-batch invariance check at an interior workload."
+      },
+      {
+        "point_id": "p02_b_invariance_32",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 64,
+          "requested_batch_size": 32,
+          "iterations": 10
+        },
+        "rationale": "Interior requested-batch level for comparison with otherwise identical points."
+      },
+      {
+        "point_id": "p03_b_invariance_1000",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 64,
+          "requested_batch_size": 1000,
+          "iterations": 10
+        },
+        "rationale": "Characterized CLI default and third member of the matched invariance check."
+      },
+      {
+        "point_id": "p04_low_boundary",
+        "inputs": {
+          "image_count": 64,
+          "resolution": 32,
+          "requested_batch_size": 1000,
+          "iterations": 1
+        },
+        "rationale": "Low-work boundary emphasizing fixed input, setup, launch, and synchronization overhead."
+      },
+      {
+        "point_id": "p05_high_r_i_low_n",
+        "inputs": {
+          "image_count": 1024,
+          "resolution": 32,
+          "requested_batch_size": 1000,
+          "iterations": 100
+        },
+        "rationale": "Separates image-count and iteration scaling from high-resolution FFT and memory effects."
+      },
+      {
+        "point_id": "p06_low_r_high_n_i",
+        "inputs": {
+          "image_count": 64,
+          "resolution": 256,
+          "requested_batch_size": 1000,
+          "iterations": 100
+        },
+        "rationale": "Exercises high N and I with low R to identify FFT-resolution and iteration interaction."
+      },
+      {
+        "point_id": "p07_high_r_n_low_i",
+        "inputs": {
+          "image_count": 1024,
+          "resolution": 256,
+          "requested_batch_size": 1000,
+          "iterations": 1
+        },
+        "rationale": "Exercises maximum input footprint and resolution while limiting iterative work, helping identify load, preprocessing, and memory scaling."
+      },
+      {
+        "point_id": "p08_low_r_mid_n_i",
+        "inputs": {
+          "image_count": 64,
+          "resolution": 128,
+          "requested_batch_size": 1000,
+          "iterations": 10
+        },
+        "rationale": "Interior-resolution point at low R for estimating R-dependent behavior."
+      },
+      {
+        "point_id": "p09_high_r_mid_n_i",
+        "inputs": {
+          "image_count": 1024,
+          "resolution": 128,
+          "requested_batch_size": 1000,
+          "iterations": 10
+        },
+        "rationale": "Matched N and I with p08 at high R to expose image-count scaling."
+      },
+      {
+        "point_id": "p10_mid_r_low_n_i",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 32,
+          "requested_batch_size": 1000,
+          "iterations": 10
+        },
+        "rationale": "Low-resolution interior point supporting estimation of nonlinear N scaling."
+      },
+      {
+        "point_id": "p11_mid_r_high_n_i",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 256,
+          "requested_batch_size": 1000,
+          "iterations": 10
+        },
+        "rationale": "High-resolution counterpart to p10 at matched R and I."
+      },
+      {
+        "point_id": "p12_mid_r_n_high_i",
+        "inputs": {
+          "image_count": 256,
+          "resolution": 128,
+          "requested_batch_size": 1000,
+          "iterations": 100
+        },
+        "rationale": "Interior R and N with high I to strengthen identification of steady iterative scaling."
+      }
+    ],
+    "estimated_total_runs": 36
+  },
+  "execution": {
+    "mode": "dry_run",
+    "max_total_runs": 100,
+    "skip_existing": true,
+    "allow_rerun": false,
+    "runner_status": "blocked_until_approval"
+  },
+  "validation": {
+    "issues": [
+      {
+        "severity": "WARNING",
+        "code": "PILOT_DOMAIN_ASSUMED",
+        "message": "The approved characterization gives lower validity bounds but no intended upper prediction bounds. This draft assumes R=64..1024, N=32..256, and I=1..100 for the pilot; human review is required before these are treated as the prediction domain.",
+        "related_ids": [
+          "image_count",
+          "resolution",
+          "iterations"
+        ]
+      },
+      {
+        "severity": "INFO",
+        "code": "B_INVARIANCE_CHECK_PLANNED",
+        "message": "B is retained as an approved input but is tested only through a matched three-point invariance check because the selected PIE entry point forces B_eff=1.",
+        "related_ids": [
+          "requested_batch_size",
+          "p01_b_invariance_1",
+          "p02_b_invariance_32",
+          "p03_b_invariance_1000"
+        ]
+      },
+      {
+        "severity": "WARNING",
+        "code": "SYNTHETIC_PHYSICS_REQUIRES_CONFIRMATION",
+        "message": "The draft specifies deterministic physically coherent synthetic diffraction, but exact object, probe, scan, and numerical-stability parameters remain subject to human approval.",
+        "related_ids": [
+          "synthetic_manifest",
+          "diffraction_files",
+          "parameter_files"
+        ]
+      },
+      {
+        "severity": "WARNING",
+        "code": "DATASET_LOOKUP_UNRESOLVED",
+        "message": "The CLI-specific mapping from --dataset to the two planned HDF5 files must be verified before a runnable matrix can be produced.",
+        "related_ids": [
+          "cli_run_ptychi_pie",
+          "diffraction_files",
+          "parameter_files"
+        ]
+      },
+      {
+        "severity": "WARNING",
+        "code": "CACHE_POLICY_REVIEW_REQUIRED",
+        "message": "One complete warmup is planned, which may leave HDF5 data in the operating-system page cache. The draft therefore measures a warmed-cache end-to-end regime unless the reviewer requests explicit cold-cache measurements.",
+        "related_ids": [
+          "end_to_end_latency",
+          "load_hdf5"
+        ]
+      },
+      {
+        "severity": "INFO",
+        "code": "POWER_SCOPE_ACCELERATOR_ONLY",
+        "message": "Energy is obtained by integrating A100 board power over the approved end-to-end boundary. Host CPU, memory, and storage energy are outside the requested accelerator-power measurement.",
+        "related_ids": [
+          "accelerator_power",
+          "accelerator_energy"
+        ]
+      },
+      {
+        "severity": "INFO",
+        "code": "OUTPUT_BOUNDARY_PRESERVED",
+        "message": "All points use --no-save-output. Output tensor copying and storage writes remain excluded from timing, energy, and byte accounting.",
+        "related_ids": [
+          "output_suppressed",
+          "end_to_end_latency"
+        ]
+      },
+      {
+        "severity": "INFO",
+        "code": "RUN_COUNT_WITHIN_LIMIT",
+        "message": "The deterministic run count is 12 base points times 1 hardware target times 3 measured repetitions, totaling 36 measured runs. Warmups are not measured repetitions and are not included in this run-count formula.",
+        "related_ids": [
+          "pty-chi-pie-pilot-2026-07-30-01",
+          "a100-primary"
+        ]
+      }
+    ]
+  },
+  "approval": {
+    "status": "awaiting_human_review",
+    "requested_decisions": [
+      "Approve or revise the assumed pilot prediction domains R=64..1024, N=32..256, and I=1..100.",
+      "Confirm that requested batch levels B={1,32,1000} are sufficient for the PIE invariance check.",
+      "Confirm use of deterministic physically simulated coherent diffraction and approve the planned float32 diffraction, complex64 probe, and float32 position dtypes.",
+      "Provide or approve the exact synthetic object, probe, scan-spacing, and intensity-scaling rules needed for numerically stable PIE runs.",
+      "Confirm the repository-specific --dataset naming and file-layout convention.",
+      "Choose whether the intended latency regime is warmed filesystem cache after one warmup or an explicitly controlled cold-cache regime.",
+      "Approve the A100 as the sole pilot hardware target and confirm that a 20 ms power sampling interval is acceptable."
+    ],
+    "reviewer": null,
+    "reviewed_at": null,
+    "notes": null
+  }
+}

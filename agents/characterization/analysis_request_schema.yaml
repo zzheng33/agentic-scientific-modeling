@@ -1,0 +1,54 @@
+# Input contract for invoking the Application Characterization Agent.
+# This is an implementation-oriented outline; strict validation code will follow.
+
+schema_version: "0.1"
+
+required_top_level_keys:
+  - application_source
+
+application_source:
+  path: string
+  revision: string_or_null
+  subdirectory: string_or_null
+
+hints:
+  application_name: string_or_null
+  entrypoints: list
+  example_commands: list
+  documentation_paths: list
+  candidate_inputs: list
+
+analysis_scope:
+  major_compute: true
+  major_io: true
+  end_to_end: boolean_or_null
+  include_initialization: boolean_or_null
+  include_output_writes: boolean_or_null
+
+modeling_targets:
+  - theoretical_flops
+  - io_bytes
+
+target_accelerators:
+  default:
+    - NVIDIA_A100
+    - NVIDIA_H100
+    - NVIDIA_H200
+    - NVIDIA_B200
+    - AMD_MI300A
+    - AMD_MI300X
+    - INTEL_DATA_CENTER_GPU_MAX
+
+constraints:
+  source_analysis_only: true
+  profiler_available: false
+  synthetic_input_available: false
+
+human_notes: string_or_null
+
+validation_rules:
+  - application_source.path must be non-empty and readable
+  - analysis must not require a profiler
+  - missing hints must be treated as discoveries, not fatal schema errors
+  - application code must be distinguished from vendored dependencies
+

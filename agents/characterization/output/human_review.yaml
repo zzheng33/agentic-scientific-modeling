@@ -1,0 +1,10 @@
+{
+  "analysis_id": "pty-chi-characterization-2026-07-28-draft-01",
+  "status": "approved",
+  "input_decisions": [],
+  "formula_decisions": [],
+  "phase_decisions": [],
+  "additional_context": "Keep number of images, resolution, batch size, and iterations as model inputs. Only consider PIE with square inputs and one coherent mode. Include input read and host-to-device transfer, but exclude output saving. The total FLOPs formula must scale with the number of iterations.",
+  "reviewer": "Zhong Zheng",
+  "reviewed_at": "2026-07-30"
+}
