@@ -7,6 +7,14 @@ commands while their logic is migrated into graph nodes.
 
 QUICK COMMANDS
 
+From the repository root, install Python dependencies and the project-local
+BGE-M3 embedding and reranker models once:
+
+  AGENTIC_PYTHON=/path/to/python3.11 ./setup/setup_venv.sh
+
+Models are stored under models/huggingface and ignored by Git. The ./agentic
+launcher selects that cache automatically.
+
 Set workflow.id and application.path once in config.toml. Then run from
 /home/zzhong/agentic_workflow:
 

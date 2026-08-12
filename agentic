@@ -4,6 +4,10 @@ set -euo pipefail
 agentic_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 agentic_python="$agentic_root/setup/venv/bin/python"
 
+# Keep Hugging Face model weights inside the project so the runtime does not
+# depend on a particular user's ~/.cache directory.
+export HF_HOME="${AGENTIC_HF_HOME:-$agentic_root/models/huggingface}"
+
 if [[ ! -x "$agentic_python" ]]; then
   echo "error: virtual environment not found; run setup/setup_venv.sh first" >&2
   exit 1

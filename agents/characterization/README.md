@@ -13,14 +13,28 @@ available for debugging.
 
 ## Setup
 
-Create a virtual environment and install the optional agent dependency:
+From the repository root, create the virtual environment, install dependencies,
+and download the RAG models:
 
 ```bash
-./setup_venv.sh
+./setup/setup_venv.sh
 ```
 
 Python 3.11 or newer is required. If `python3` resolves to an older interpreter,
 set `AGENTIC_PYTHON` before running the setup script.
+
+The setup script stores `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3` under
+`models/huggingface/` in the repository. That directory is intentionally ignored
+by Git. To download or verify the models separately, run:
+
+```bash
+setup/venv/bin/python setup/download_models.py
+setup/venv/bin/python setup/download_models.py --local-files-only
+```
+
+Set `AGENTIC_SKIP_MODEL_DOWNLOAD=1` only when setting up an environment that
+will not build or query the literature index. `./agentic` automatically uses the
+project-local model cache; `AGENTIC_HF_HOME` can override its location.
 
 The repository includes `config.toml` as the runtime configuration:
 
