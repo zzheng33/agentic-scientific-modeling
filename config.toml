@@ -7,6 +7,45 @@ reasoning_effort = "high"
 [agent]
 max_tool_rounds = 40
 
+[characterization.rag]
+# Local ptychography papers used as supporting evidence during characterization.
+# Accepted formats: PDF, Markdown, and plain text.
+enabled = true
+corpus_path = "knowledge/ptychography/papers"
+index_path = "knowledge/ptychography/index"
+embedding_model = "BAAI/bge-m3"
+reranker_model = "BAAI/bge-reranker-v2-m3"
+top_k = 6
+parent_chunk_chars = 6000
+child_chunk_chars = 1200
+child_overlap_chars = 180
+max_context_chars = 12000
+parent_context_chars = 2600
+# First-stage BM25 and HNSW candidate counts.
+bm25_top_n = 50
+dense_top_n = 50
+fusion_top_n = 50
+rerank_top_n = 15
+rrf_offset = 60
+# Reciprocal-rank fusion weights for exact terms and BGE-M3 dense retrieval.
+bm25_weight = 0.55
+dense_weight = 0.45
+# HNSW cosine index parameters.
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 96
+# Local model inference limits.
+embedding_batch_size = 8
+embedding_max_length = 8192
+reranker_batch_size = 8
+reranker_max_length = 2048
+# Set true on a compatible CUDA GPU; false is portable to CPU/macOS.
+use_fp16 = false
+# Higher values favor relevance; lower values increase source diversity.
+diversity_lambda = 0.82
+same_parent_penalty = 0.12
+max_children_per_paper = 3
+
 [workflow]
 # Active workflow used by ./agentic status, resume, and continue.
 id = "ptychi_001"

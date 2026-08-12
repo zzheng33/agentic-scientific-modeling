@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import tomllib
 from pathlib import Path
@@ -11,6 +12,12 @@ from typing import Any
 from langgraph.types import Command
 
 from agents.planner.synthetic_generator import generate_datasets, preview_manifest
+from agents.characterization.runner import CharacterizationConfig
+from agents.characterization.rag_store import (
+    PersistentPaperRetriever,
+    build_persistent_index,
+    index_status,
+)
 from schemas.artifacts import ArtifactRef
 from workflow.approvals import validate_review_file
 from workflow.artifacts import ArtifactStore, sha256_file
@@ -83,6 +90,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     hash_command = commands.add_parser("hash-file", help="Print a file SHA-256 for edit review")
     hash_command.add_argument("--path", type=Path, required=True)
+    rag = commands.add_parser(
+        "rag-index", help="Build, inspect, or query the characterization paper index"
+    )
+    rag.add_argument("action", choices=("build", "status", "search"))
+    rag.add_argument("--config", type=Path, default=PROJECT_ROOT / "config.toml")
+    rag.add_argument("--query", help="Required for the search action")
     return parser
 
 
@@ -394,6 +407,48 @@ def benchmark_workflow(args: argparse.Namespace) -> None:
     print_state(after.values, after.next)
 
 
+def manage_rag_index(args: argparse.Namespace) -> None:
+    config = CharacterizationConfig.from_file(args.config)
+    if config.rag_corpus_path is None or config.rag_index_path is None:
+        raise ValueError("Configure characterization.rag corpus_path and index_path")
+    if args.action == "status":
+        print(
+            json.dumps(
+                index_status(
+                    config.rag_corpus_path,
+                    config.rag_index_path,
+                    config.rag_settings,
+                ),
+                indent=2,
+            )
+        )
+        return
+    if args.action == "build":
+        manifest = build_persistent_index(
+            config.rag_corpus_path,
+            config.rag_index_path,
+            config.rag_settings,
+        )
+        print(json.dumps(manifest, indent=2))
+        return
+    query = str(args.query or "").strip()
+    if not query:
+        raise ValueError("rag-index search requires --query")
+    retriever = PersistentPaperRetriever(
+        config.rag_corpus_path,
+        config.rag_index_path,
+        config.rag_settings,
+    )
+    print(
+        retriever.render_context(
+            query,
+            top_k=config.rag_top_k,
+            max_chars=config.rag_max_context_chars,
+            parent_context_chars=config.rag_parent_context_chars,
+        )
+    )
+
+
 def main() -> None:
     args = build_parser().parse_args()
     try:
@@ -415,9 +470,11 @@ def main() -> None:
             continue_workflow(args)
         elif args.command == "hash-file":
             print(sha256_file(args.path.expanduser().resolve(strict=True)))
+        elif args.command == "rag-index":
+            manage_rag_index(args)
         else:
             raise ValueError(f"Unknown command: {args.command}")
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         raise SystemExit(f"error: {exc}") from exc
 
 

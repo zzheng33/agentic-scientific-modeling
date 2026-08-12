@@ -21,6 +21,18 @@ Set workflow.id and application.path once in config.toml. Then run from
   ./agentic benchmark --execute
   ./agentic continue
 
+Before starting characterization with literature RAG enabled, put PDF,
+Markdown, or text papers under knowledge/ptychography/papers and build the
+persistent BM25/BGE-M3/HNSW index:
+
+  ./agentic rag-index build
+  ./agentic rag-index status
+
+Test retrieval and cross-encoder reranking independently with:
+
+  ./agentic rag-index search \
+    --query "Which inputs determine ptychography FFT work and I/O bytes?"
+
 The resume command reads the active workflow ID from config.toml. If a review is
 pending, it finds and submits that YAML; otherwise it continues the interrupted
 node. Full --workflow-id, --application, and --review-file options remain

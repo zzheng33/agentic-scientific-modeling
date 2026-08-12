@@ -19,6 +19,9 @@ Create a virtual environment and install the optional agent dependency:
 ./setup_venv.sh
 ```
 
+Python 3.11 or newer is required. If `python3` resolves to an older interpreter,
+set `AGENTIC_PYTHON` before running the setup script.
+
 The repository includes `config.toml` as the runtime configuration:
 
 ```bash
@@ -65,6 +68,68 @@ The output directory contains:
 - `application_characterization.yaml`
 - `analysis_report.md`
 - `human_review.yaml`
+
+## Ptychography literature RAG
+
+The persistent and standalone characterization paths can retrieve supporting
+evidence from a local paper corpus. Configure it in `config.toml`:
+
+```toml
+[characterization.rag]
+enabled = true
+corpus_path = "knowledge/ptychography/papers"
+index_path = "knowledge/ptychography/index"
+embedding_model = "BAAI/bge-m3"
+reranker_model = "BAAI/bge-reranker-v2-m3"
+top_k = 6
+parent_chunk_chars = 6000
+child_chunk_chars = 1200
+child_overlap_chars = 180
+max_context_chars = 12000
+parent_context_chars = 2600
+bm25_top_n = 50
+dense_top_n = 50
+fusion_top_n = 50
+rerank_top_n = 15
+rrf_offset = 60
+bm25_weight = 0.55
+dense_weight = 0.45
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 96
+diversity_lambda = 0.82
+same_parent_penalty = 0.12
+max_children_per_paper = 3
+```
+
+Add locally licensed or open papers as PDF, Markdown, or plain text files, then
+build the persistent index before starting characterization:
+
+```bash
+./agentic rag-index build
+./agentic rag-index status
+./agentic rag-index search \
+  --query "Which inputs determine ptychography FFT work and I/O bytes?"
+```
+
+The build command extracts PDF text page by page, creates parent and child
+chunks, writes a persistent Okapi-BM25 inverted index, embeds every child with
+`BAAI/bge-m3`, and builds a cosine HNSW index. It also records parents,
+children, embeddings, corpus checksums, model names, and index settings under
+`index_path`. Characterization refuses a stale index after a paper, chunking
+parameter, embedding model, or structural HNSW setting changes.
+
+Online retrieval runs BM25 top-N and BGE-M3/HNSW top-N in parallel, combines
+their ranks with weighted Reciprocal Rank Fusion, and sends the fused candidates
+through the `BAAI/bge-reranker-v2-m3` cross-encoder. MMR then uses normalized
+cross-encoder relevance and BGE embedding cosine redundancy, with same-parent
+and per-paper controls, to select the final children. Bounded windows from their
+parents restore context without repeating the matched child.
+
+Retrieved passages retain source IDs, parent IDs, filenames, and PDF page
+numbers. Literature remains secondary evidence: application source is
+authoritative for implementation claims, and layout-sensitive equations or
+figures require human verification.
 
 Despite the `.yaml` suffix, machine-readable artifacts are currently emitted as
 JSON, which is a valid YAML subset. This avoids adding a YAML runtime dependency.

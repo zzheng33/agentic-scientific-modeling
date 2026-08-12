@@ -117,6 +117,23 @@ validated artifacts, and explicit human decisions control every transition.
 
 ## 1. Application Characterization Agent
 
+### Literature retrieval
+
+When enabled, characterization supplements code inspection with a persistent,
+local ptychography-paper retrieval index. PDF pages are split into large parent
+chunks and overlapping child passages. An offline build writes parent/child
+metadata, an Okapi-BM25 inverted index, normalized BGE-M3 child embeddings, and
+a cosine HNSW graph. Online queries retrieve BM25 and HNSW candidates, combine
+their ranks with weighted Reciprocal Rank Fusion, rerank the fused candidates
+with the `bge-reranker-v2-m3` cross-encoder, and apply embedding-based Maximum
+Marginal Relevance with same-parent and per-paper controls. Only then are
+bounded parent surroundings restored for the final passages.
+
+The index manifest binds corpus checksums, chunking settings, embedding model,
+and structural HNSW parameters. A stale index must be rebuilt. Retrieved papers
+remain secondary evidence: they can suggest inputs and cross-check theoretical
+formulas, but source code determines what the application actually implements.
+
 ### Responsibility
 
 The first agent analyzes a scientific application before any expensive

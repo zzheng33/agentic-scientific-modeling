@@ -29,6 +29,10 @@ compute FLOPs and major I/O bytes.
 13. Alternative algorithms are separate model groups, not workload inputs. Use
     the same approved input vector for every algorithm and distinguish
     algorithm-specific formulas or later fitted coefficients by group.
+14. Retrieved literature is secondary evidence. Use it to explain algorithms or
+    cross-check formulas, never to assert repository implementation behavior.
+    Cite exact paper source IDs and pages. Because PDF extraction can damage
+    equations and omit figures, flag layout-sensitive claims for human review.
 
 # Analysis priorities
 
