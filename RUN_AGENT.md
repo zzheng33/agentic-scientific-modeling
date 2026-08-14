@@ -3,6 +3,23 @@
 This guide runs the complete local-control/remote-execution workflow. Run all
 commands from the repository root.
 
+The supported execution path is remote-only:
+
+```text
+Characterization Agent
+→ Planning Agent
+→ Execution Script Agent
+→ human script review
+→ Remote Executor (SSH/SCP/Cobalt)
+→ measurement validation and resource modeling
+→ SystemFlow integration
+```
+
+There is no local Benchmark Runner and no built-in synthetic dataset generator.
+The Execution Script Agent generates application-specific
+`dataset_generation.sh` and `benchmark_job.sh` files. Only human-approved
+versions are sent to the configured remote system.
+
 ## 1. Set up the local Python environment
 
 Python 3.11 or newer is required. First check the interpreter you intend to
@@ -151,12 +168,19 @@ default_hardware = ["GH200"]
 [remote_executor]
 enabled = true
 host = "zhong.zheng@login.jlse.anl.gov"
+remote_runs_root = "/home/zhong.zheng/agentic-runs"
 remote_application_path = "/home/zhong.zheng/pty-chi"
 upload_application = true
 hardware_id = "GH200"
 queue = "gpu_gh200"
+nodes = 1
+walltime_minutes = 30
+poll_interval_s = 15
+poll_timeout_s = 3600
+module_path = "/soft/modulefiles"
 modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
 conda_env = "ptychopinn_torch_arm"
+remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
 device = "cuda"
 vendor = "nvidia"
 devices = "0"
@@ -235,7 +259,8 @@ application-specific dataset script that runs inside the compute allocation.
 ./agentic status
 ```
 
-The Planner reads the application source, approved characterization and plan,
+The Execution Script Agent reads the application source, approved
+characterization and plan, experiment matrix, fixed remote platform profile,
 and JLSE RAG. It drafts:
 
 ```text
@@ -266,6 +291,8 @@ Approve the reported review YAML and run:
 ```
 
 The graph now stops at `benchmark_ready`; no GPU job has been submitted yet.
+The old `./agentic datasets` command no longer exists: dataset preparation is
+part of the reviewed remote-script contract.
 
 ## 6. Execute on JLSE
 
@@ -304,6 +331,13 @@ runs/<workflow-id>/remote_results/vNNN/results/
 
 The graph rewrites remote log and power-trace paths to their downloaded local
 paths, then pauses at `measurement_validation_review`.
+
+Remote execution also writes these versioned workflow artifacts:
+
+```text
+raw_measurements.vNNN.csv
+remote_execution_summary.vNNN.yaml
+```
 
 ## 7. Finish validation and modeling
 
