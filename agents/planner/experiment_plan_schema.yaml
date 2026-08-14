@@ -71,6 +71,7 @@ hardware:
     - H100
     - H200
     - B200
+    - GH200
     - MI300A
     - MI300X
     - INTEL_MAX

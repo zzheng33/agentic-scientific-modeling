@@ -1,0 +1,18 @@
+hostname=grace01
+CONDA_ENV=ptychopinn_torch_arm
+PYTHON_BIN=/home/zhong.zheng/.conda/envs/ptychopinn_torch_arm/bin/python
+Currently Loaded Modulefiles:
+ 1) cuda/12.9.1   2) conda/nvidia/suse15.6/2025.01-11  
+torch=2.12.0+cu130
+cuda_available=True
+device=NVIDIA GH200 480GB
+{
+  "completed_runs": 0,
+  "failed_runs": 1,
+  "finished_at": "2026-08-14T19:44:13.207382+00:00",
+  "plan_id": "ptychi-smoke-20260814-01",
+  "planned_runs": 1,
+  "result": "/home/zhong.zheng/agentic-runs/ptychi_smoke_20260814_01/results/runs/smoke-0001/result.json",
+  "schema_version": "0.1",
+  "status": "failed"
+}

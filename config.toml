@@ -59,14 +59,64 @@ characterization_path = "agents/characterization/output/application_characteriza
 output_path = "agents/planner/output"
 max_tool_rounds = 40
 max_total_runs = 100
-default_hardware = ["A100"]
+default_hardware = ["GH200"]
 repetitions = 3
 
-[benchmark]
-# Must point to a Python environment that can import both torch and ptychi.
-python_executable = "/usr/bin/python3"
-runner_script = "/home/zzhong/pty-chi/scripts/run_ptychi.py"
-monitor_script = "/home/zzhong/PtychoPINN/scripts/monitor_gpu_power.py"
+[planner.rag]
+# JLSE scripts and validated runbooks used as operational planning evidence.
+# This index is independent from the characterization paper index.
+enabled = true
+corpus_path = "knowledge/jlse/runbooks"
+index_path = "knowledge/jlse/index"
+embedding_model = "BAAI/bge-m3"
+reranker_model = "BAAI/bge-reranker-v2-m3"
+top_k = 6
+parent_chunk_chars = 4000
+child_chunk_chars = 900
+child_overlap_chars = 120
+max_context_chars = 10000
+parent_context_chars = 2200
+bm25_top_n = 30
+dense_top_n = 30
+fusion_top_n = 30
+rerank_top_n = 15
+rrf_offset = 60
+bm25_weight = 0.55
+dense_weight = 0.45
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 64
+embedding_batch_size = 8
+embedding_max_length = 8192
+reranker_batch_size = 8
+reranker_max_length = 2048
+use_fp16 = false
+diversity_lambda = 0.82
+same_parent_penalty = 0.12
+max_children_per_paper = 3
+
+[remote_executor]
+# Authentication stays interactive in the invoking terminal; no password or
+# one-time code is stored in this file.
+enabled = true
+host = "zhong.zheng@login.jlse.anl.gov"
+remote_runs_root = "/home/zhong.zheng/agentic-runs"
+# Used only when upload_application=false. By default the reviewed local source
+# is packaged with the two approved scripts.
+remote_application_path = "/home/zhong.zheng/pty-chi"
+upload_application = true
+hardware_id = "GH200"
+queue = "gpu_gh200"
+nodes = 1
+walltime_minutes = 30
+poll_interval_s = 15
+poll_timeout_s = 3600
+qsub_command = "qsub"
+qstat_command = "qstat"
+module_path = "/soft/modulefiles"
+modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
+conda_env = "ptychopinn_torch_arm"
+remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
 device = "cuda"
 vendor = "nvidia"
 devices = "0"

@@ -1,0 +1,9 @@
+{
+  "app_git_commit": "34db7f3226927c23385d7b816bc213eba02b3c60",
+  "app_root": "/home/zhong.zheng/pty-chi",
+  "cobalt_jobid": "992080",
+  "cuda_visible_devices": null,
+  "hostname": "grace00",
+  "python_bin": "/home/zhong.zheng/.conda/envs/ptychopinn_torch_arm/bin/python",
+  "python_version": "3.10.20 | packaged by conda-forge | (main, Mar  5 2026, 16:36:56) [GCC 14.3.0]"
+}

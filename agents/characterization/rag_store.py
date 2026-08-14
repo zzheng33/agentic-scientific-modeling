@@ -1,4 +1,4 @@
-"""Persistent BGE-M3/HNSW hybrid retrieval store for characterization RAG."""
+"""Persistent BGE-M3/HNSW hybrid retrieval for papers and runbooks."""
 
 from __future__ import annotations
 
@@ -103,6 +103,38 @@ class RAGIndexSettings:
             raise ValueError("RAG same_parent_penalty cannot be negative")
 
 
+def rag_settings_from_mapping(config: dict[str, Any]) -> RAGIndexSettings:
+    """Parse one TOML RAG table while keeping defaults in a single place."""
+    defaults = RAGIndexSettings()
+    return RAGIndexSettings(
+        embedding_model=str(config.get("embedding_model", defaults.embedding_model)),
+        reranker_model=str(config.get("reranker_model", defaults.reranker_model)),
+        parent_chunk_chars=int(config.get("parent_chunk_chars", defaults.parent_chunk_chars)),
+        child_chunk_chars=int(config.get("child_chunk_chars", defaults.child_chunk_chars)),
+        child_overlap_chars=int(config.get("child_overlap_chars", defaults.child_overlap_chars)),
+        embedding_batch_size=int(config.get("embedding_batch_size", defaults.embedding_batch_size)),
+        embedding_max_length=int(config.get("embedding_max_length", defaults.embedding_max_length)),
+        reranker_batch_size=int(config.get("reranker_batch_size", defaults.reranker_batch_size)),
+        reranker_max_length=int(config.get("reranker_max_length", defaults.reranker_max_length)),
+        use_fp16=bool(config.get("use_fp16", defaults.use_fp16)),
+        hnsw_m=int(config.get("hnsw_m", defaults.hnsw_m)),
+        hnsw_ef_construction=int(config.get("hnsw_ef_construction", defaults.hnsw_ef_construction)),
+        hnsw_ef_search=int(config.get("hnsw_ef_search", defaults.hnsw_ef_search)),
+        bm25_top_n=int(config.get("bm25_top_n", defaults.bm25_top_n)),
+        dense_top_n=int(config.get("dense_top_n", defaults.dense_top_n)),
+        fusion_top_n=int(config.get("fusion_top_n", defaults.fusion_top_n)),
+        rerank_top_n=int(config.get("rerank_top_n", defaults.rerank_top_n)),
+        rrf_offset=int(config.get("rrf_offset", defaults.rrf_offset)),
+        bm25_weight=float(config.get("bm25_weight", defaults.bm25_weight)),
+        dense_weight=float(config.get("dense_weight", defaults.dense_weight)),
+        diversity_lambda=float(config.get("diversity_lambda", defaults.diversity_lambda)),
+        same_parent_penalty=float(config.get("same_parent_penalty", defaults.same_parent_penalty)),
+        max_children_per_paper=int(
+            config.get("max_children_per_paper", defaults.max_children_per_paper)
+        ),
+    )
+
+
 class BGEM3Embedder:
     """Lazy FlagEmbedding wrapper producing normalized BGE-M3 dense vectors."""
 
@@ -187,7 +219,7 @@ def corpus_fingerprint(corpus_root: str | Path) -> tuple[str, list[dict[str, Any
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.name.startswith("."):
             continue
-        if path.suffix.lower() not in {".pdf", ".md", ".txt"}:
+        if path.suffix.lower() not in {".pdf", ".md", ".txt", ".sh", ".bash"}:
             continue
         digest = _sha256(path)
         relative = path.relative_to(root).as_posix()
@@ -285,7 +317,7 @@ def build_persistent_index(
     return manifest
 
 
-class PersistentPaperRetriever:
+class PersistentCorpusRetriever:
     """BM25 + BGE-M3/HNSW + RRF + cross-encoder + MMR retrieval."""
 
     def __init__(
@@ -297,15 +329,24 @@ class PersistentPaperRetriever:
         embedder: Embedder | None = None,
         reranker: Reranker | None = None,
         verify_corpus: bool = True,
+        source_label: str = "paper_source",
     ) -> None:
         settings.validate()
         self.settings = settings
+        if not source_label or any(character.isspace() for character in source_label):
+            raise ValueError("RAG source_label must be a non-empty token")
+        self.source_label = source_label
         self.corpus_root = Path(corpus_root).expanduser().resolve(strict=True)
         try:
             self.index_root = Path(index_root).expanduser().resolve(strict=True)
         except FileNotFoundError as exc:
+            build_command = (
+                "./agentic jlse-rag build"
+                if source_label == "operational_source"
+                else "./agentic rag-index build"
+            )
             raise ValueError(
-                f"RAG index does not exist: {index_root}; run './agentic rag-index build'"
+                f"RAG index does not exist: {index_root}; run '{build_command}'"
             ) from exc
         self.manifest = json.loads(
             (self.index_root / "manifest.json").read_text(encoding="utf-8")
@@ -507,7 +548,7 @@ class PersistentPaperRetriever:
             parent = self.parents[child.parent_id]
             before, after = _parent_surroundings(parent.text, child, parent_context_chars)
             block = (
-                f"[paper_source {child.citation()}, parent_id={child.parent_id}, "
+                f"[{self.source_label} {child.citation()}, parent_id={child.parent_id}, "
                 f"rrf={result.score:.6f}, bm25={result.bm25_score:.4f}, "
                 f"dense_cosine={result.semantic_score:.4f}, "
                 f"cross_encoder={result.rerank_score:.4f}]\n"
@@ -521,6 +562,10 @@ class PersistentPaperRetriever:
             blocks.append(block[:remaining].rstrip())
             used += len(blocks[-1]) + 2
         return "\n\n".join(blocks)
+
+
+# Backward-compatible domain-specific name used by characterization.
+PersistentPaperRetriever = PersistentCorpusRetriever
 
 
 def index_status(

@@ -24,5 +24,9 @@ fi
 
 echo "Agentic virtual environment is ready: ${VENV_DIR}"
 echo "Hugging Face models are stored under: ${HF_HOME}"
+echo "Verify the local model cache without network access with:"
+echo "${VENV_DIR}/bin/python ${AGENTIC_DIR}/download_models.py --hf-home ${HF_HOME} --local-files-only"
 echo "Build the characterization literature index with:"
 echo "${AGENTIC_DIR}/../agentic rag-index build"
+echo "Build the JLSE operational index with:"
+echo "${AGENTIC_DIR}/../agentic jlse-rag build"

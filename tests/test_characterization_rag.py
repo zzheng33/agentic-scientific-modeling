@@ -127,6 +127,27 @@ class PaperRetrieverTests(unittest.TestCase):
             self.assertNotEqual(first, second)
             self.assertEqual(records[0]["path"], "paper.txt")
 
+    def test_shell_runbook_is_chunked_and_fingerprinted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "run_gh200.sh"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "module load cuda/12.9.1\n"
+                "conda activate ptychopinn_torch_arm\n"
+                + "python benchmark.py --device cuda\n" * 30,
+                encoding="utf-8",
+            )
+
+            retriever = InMemoryTestRetriever.from_directory(
+                root, parent_chunk_chars=1000, child_chunk_chars=400
+            )
+            _fingerprint, records = corpus_fingerprint(root)
+            results = retriever.search("GH200 CUDA conda environment", top_k=1)
+
+            self.assertEqual(records[0]["path"], "run_gh200.sh")
+            self.assertEqual(results[0].chunk.path, "run_gh200.sh")
+
     def test_missing_persistent_index_reports_missing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

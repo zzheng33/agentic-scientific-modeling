@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
-from agents.benchmark.runner import (
-    benchmark_config,
-    build_benchmark_commands,
-    execute_commands,
-    render_commands_csv,
-)
 from agents.modeling.runner import (
     extract_measurements,
     fit_resource_model,
     render_model_json,
 )
+from agents.planner.runner import PlannerConfig
+from agents.planner.script_generator import ExecutionScriptAgent
+from agents.remote_executor.runner import RemoteExecutorConfig, execute_remote_benchmark
 from agents.systemflow_integration.runner import (
     SystemFlowIntegrationAgent,
     prepare_systemflow_model,
@@ -62,30 +60,70 @@ def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
     store = _store(state)
     plan_ref = _ref(state, "approved_experiment_plan_ref")
     matrix_ref = _ref(state, "experiment_matrix_ref")
-    dataset_ref = _ref(state, "synthetic_dataset_manifest_ref")
-    dataset_manifest = store.read_artifact(dataset_ref)
+    plan = store.read_artifact(plan_ref)
+    characterization = store.read_artifact(_ref(state, "approved_characterization_ref"))
     matrix_path = store.verify_artifact(matrix_ref)
-    configuration = benchmark_config(state.get("config_path"), state["application_path"])
-    rows, manifest = build_benchmark_commands(
-        matrix_path, dataset_manifest, state["run_dir"], configuration
+    matrix_csv = matrix_path.read_text(encoding="utf-8")
+    remote = RemoteExecutorConfig.from_file(state.get("config_path"))
+    planned_hardware = {
+        str(item.get("hardware_id", ""))
+        for item in plan.get("hardware", {}).get("targets", [])
+    }
+    if planned_hardware != {remote.hardware_id}:
+        raise ValueError(
+            "Remote script generation requires exactly the configured hardware profile "
+            f"{remote.hardware_id}; plan contains {sorted(planned_hardware)}"
+        )
+    generated = ExecutionScriptAgent(
+        PlannerConfig.from_file(state.get("config_path"))
+    ).generate(
+        state["application_path"],
+        characterization,
+        plan,
+        matrix_csv,
+        remote.platform_profile(),
+        revision_feedback=state.get("benchmark_feedback") or "",
     )
     version = int(state.get("benchmark_revision", 0)) + 1
-    commands_ref = store.write_text_artifact(
+    dataset_script_ref = store.write_text_artifact(
         stage=BENCHMARK_STAGE,
-        artifact_type="benchmark_commands",
+        artifact_type="dataset_generation_script",
         version=version,
-        extension="csv",
-        content=render_commands_csv(rows),
+        extension="sh",
+        content=generated["dataset_generation_script"].rstrip() + "\n",
     )
-    manifest.update(
-        {
-            "human_feedback": state.get("benchmark_feedback"),
-            "approved_plan": plan_ref.model_dump(mode="json"),
-            "experiment_matrix": matrix_ref.model_dump(mode="json"),
-            "synthetic_dataset_manifest": dataset_ref.model_dump(mode="json"),
-            "commands_artifact": commands_ref.model_dump(mode="json"),
-        }
+    benchmark_script_ref = store.write_text_artifact(
+        stage=BENCHMARK_STAGE,
+        artifact_type="benchmark_job_script",
+        version=version,
+        extension="sh",
+        content=generated["benchmark_job_script"].rstrip() + "\n",
     )
+    with matrix_path.open(newline="", encoding="utf-8") as stream:
+        run_count = sum(1 for _ in csv.DictReader(stream))
+    manifest = {
+        "schema_version": "0.2",
+        "status": "awaiting_human_review",
+        "execution_backend": "remote_llm_scripts",
+        "run_count": run_count,
+        "approved_plan": plan_ref.model_dump(mode="json"),
+        "experiment_matrix": matrix_ref.model_dump(mode="json"),
+        "application_path": state["application_path"],
+        "application_revision": state.get("source_revision"),
+        "platform_profile": remote.platform_profile(),
+        "scripts": {
+            "dataset_generation": dataset_script_ref.model_dump(mode="json"),
+            "benchmark_job": benchmark_script_ref.model_dump(mode="json"),
+        },
+        "application_interfaces": generated["application_interfaces"],
+        "assumptions": generated["assumptions"],
+        "human_feedback": state.get("benchmark_feedback"),
+        "validation": {
+            "execution_ready": True,
+            "scripts_require_human_review": True,
+            "issues": [],
+        },
+    }
     manifest_ref = store.write_artifact(
         stage=BENCHMARK_STAGE,
         artifact_type="benchmark_run_manifest",
@@ -95,10 +133,11 @@ def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
     return {
         "artifact_ref": manifest_ref.model_dump(mode="json"),
         "benchmark_manifest_ref": manifest_ref.model_dump(mode="json"),
-        "benchmark_commands_ref": commands_ref.model_dump(mode="json"),
+        "dataset_generation_script_ref": dataset_script_ref.model_dump(mode="json"),
+        "benchmark_job_script_ref": benchmark_script_ref.model_dump(mode="json"),
         "benchmark_revision": version,
         "benchmark_feedback": None,
-        "workflow_status": "benchmark_manifest_ready",
+        "workflow_status": "benchmark_scripts_ready",
         "current_stage": BENCHMARK_STAGE,
     }
 
@@ -139,7 +178,7 @@ def _prepare_review(
 def prepare_benchmark_review(state: WorkflowState) -> dict[str, Any]:
     return _prepare_review(
         state, "benchmark_manifest_ref",
-        agent_version="benchmark-runner-0.1", tool_version="command-builder-0.1"
+        agent_version="execution-script-agent-0.2", tool_version="script-validator-0.2"
     )
 
 
@@ -199,14 +238,37 @@ def route_after_benchmark_review(state: WorkflowState) -> str:
     return str(state["route"])
 
 
-def execute_benchmark(state: WorkflowState) -> dict[str, Any]:
+def remote_executor(state: WorkflowState) -> dict[str, Any]:
+    """Upload an approved bundle, submit Cobalt, and ingest downloaded results."""
     store = _store(state)
     manifest = store.read_artifact(_ref(state, "approved_benchmark_manifest_ref"))
-    commands_path = store.verify_artifact(_ref(state, "benchmark_commands_ref"))
-    measurements_csv, summary = execute_commands(
-        commands_path, state["run_dir"], manifest["runner"]
-    )
+    scripts = manifest.get("scripts", {})
+    dataset_script_ref = ArtifactRef.model_validate(scripts.get("dataset_generation"))
+    benchmark_script_ref = ArtifactRef.model_validate(scripts.get("benchmark_job"))
+    if (
+        dataset_script_ref.stage != BENCHMARK_STAGE
+        or dataset_script_ref.artifact_type != "dataset_generation_script"
+        or benchmark_script_ref.stage != BENCHMARK_STAGE
+        or benchmark_script_ref.artifact_type != "benchmark_job_script"
+    ):
+        raise ValueError("Approved benchmark manifest contains invalid script references")
+    dataset_script_path = store.verify_artifact(dataset_script_ref)
+    benchmark_script_path = store.verify_artifact(benchmark_script_ref)
+    plan_path = store.verify_artifact(_ref(state, "approved_experiment_plan_ref"))
+    matrix_path = store.verify_artifact(_ref(state, "experiment_matrix_ref"))
     version = int(state["benchmark_revision"])
+    configuration = RemoteExecutorConfig.from_file(state.get("config_path"))
+    measurements_csv, summary = execute_remote_benchmark(
+        dataset_script_path,
+        benchmark_script_path,
+        plan_path,
+        matrix_path,
+        state["application_path"],
+        state["run_dir"],
+        state["workflow_id"],
+        version,
+        configuration,
+    )
     measurements_ref = store.write_text_artifact(
         stage="benchmark_execution",
         artifact_type="raw_measurements",
@@ -214,18 +276,27 @@ def execute_benchmark(state: WorkflowState) -> dict[str, Any]:
         extension="csv",
         content=measurements_csv,
     )
-    summary["measurements_artifact"] = measurements_ref.model_dump(mode="json")
+    summary.update(
+        {
+            "approved_benchmark_manifest": _ref(
+                state, "approved_benchmark_manifest_ref"
+            ).model_dump(mode="json"),
+            "planned_runs": int(manifest["run_count"]),
+            "measurements_artifact": measurements_ref.model_dump(mode="json"),
+        }
+    )
     summary_ref = store.write_artifact(
         stage="benchmark_execution",
-        artifact_type="benchmark_execution_summary",
+        artifact_type="remote_execution_summary",
         version=version,
         payload=summary,
     )
     return {
         "measurements_ref": measurements_ref.model_dump(mode="json"),
         "benchmark_execution_ref": summary_ref.model_dump(mode="json"),
+        "remote_execution_ref": summary_ref.model_dump(mode="json"),
         "workflow_status": summary["status"],
-        "current_stage": "benchmark_execution_complete",
+        "current_stage": "remote_execution_complete",
         "validation_revision": 0,
     }
 
@@ -531,7 +602,7 @@ def add_downstream_nodes(builder: StateGraph) -> None:
     builder.add_node("prepare_benchmark_review", prepare_benchmark_review)
     builder.add_node("benchmark_review_gate", downstream_review_gate)
     builder.add_node("apply_benchmark_review", apply_benchmark_review)
-    builder.add_node("execute_benchmark", execute_benchmark)
+    builder.add_node("remote_executor", remote_executor)
     builder.add_node("extract_measurements", extract_and_validate_measurements)
     builder.add_node("prepare_validation_review", prepare_validation_review)
     builder.add_node("validation_review_gate", downstream_review_gate)
@@ -556,9 +627,13 @@ def add_downstream_nodes(builder: StateGraph) -> None:
     builder.add_edge("benchmark_review_gate", "apply_benchmark_review")
     builder.add_conditional_edges(
         "apply_benchmark_review", route_after_benchmark_review,
-        {"revise_benchmark": "prepare_benchmark", "benchmark_ready": END, "execute_benchmark": "execute_benchmark"},
+        {
+            "revise_benchmark": "prepare_benchmark",
+            "benchmark_ready": END,
+            "remote_execute_benchmark": "remote_executor",
+        },
     )
-    builder.add_edge("execute_benchmark", "extract_measurements")
+    builder.add_edge("remote_executor", "extract_measurements")
     builder.add_edge("extract_measurements", "prepare_validation_review")
     builder.add_edge("prepare_validation_review", "validation_review_gate")
     builder.add_edge("validation_review_gate", "apply_validation_review")

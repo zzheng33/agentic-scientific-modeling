@@ -1,4 +1,4 @@
-"""Hierarchical, auditable retrieval over scientific papers."""
+"""Hierarchical, auditable retrieval over papers and operational runbooks."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Iterable
 
 
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*|[\u4e00-\u9fff]")
-_SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt"}
+_SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt", ".sh", ".bash"}
 
 
 def _normalize_text(text: str) -> str:
@@ -302,7 +302,7 @@ class InMemoryTestRetriever:
                 parent.text, chunk, parent_context_chars
             )
             block = (
-                f"[paper_source {chunk.citation()}, parent_id={chunk.parent_id}, "
+                f"[source {chunk.citation()}, parent_id={chunk.parent_id}, "
                 f"hybrid_score={result.score:.6f}, bm25={result.bm25_score:.4f}, "
                 f"semantic={result.semantic_score:.4f}]\n"
                 f"<matched_child>\n{chunk.text.strip()}\n</matched_child>\n"
@@ -329,7 +329,7 @@ def chunk_corpus(
     """Parse a corpus into deterministic parent and child chunks."""
     root = Path(corpus_root).expanduser().resolve()
     if not root.is_dir():
-        raise ValueError(f"RAG paper corpus does not exist: {root}")
+        raise ValueError(f"RAG corpus does not exist: {root}")
     if parent_chunk_chars < child_chunk_chars:
         raise ValueError("RAG parent chunks must be at least as large as child chunks")
     if child_chunk_chars < 400:
@@ -412,7 +412,7 @@ def _parent_chunks(
                 stop = boundary
         content = normalized[start:stop].strip()
         page_label = f"p{page:04d}" if page is not None else "text"
-        parent_id = f"paper:{relative_path}:{page_label}:parent{ordinal:03d}"
+        parent_id = f"source:{relative_path}:{page_label}:parent{ordinal:03d}"
         parents.append(
             ParentChunk(
                 parent_id=parent_id,

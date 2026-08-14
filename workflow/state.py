@@ -29,11 +29,12 @@ class WorkflowState(TypedDict, total=False):
     experiment_plan_ref: dict[str, Any] | None
     experiment_matrix_ref: dict[str, Any] | None
     approved_experiment_plan_ref: dict[str, Any] | None
-    synthetic_dataset_manifest_ref: dict[str, Any] | None
     benchmark_manifest_ref: dict[str, Any] | None
-    benchmark_commands_ref: dict[str, Any] | None
+    dataset_generation_script_ref: dict[str, Any] | None
+    benchmark_job_script_ref: dict[str, Any] | None
     approved_benchmark_manifest_ref: dict[str, Any] | None
     benchmark_execution_ref: dict[str, Any] | None
+    remote_execution_ref: dict[str, Any] | None
     measurements_ref: dict[str, Any] | None
     extracted_runs_ref: dict[str, Any] | None
     measurement_validation_ref: dict[str, Any] | None

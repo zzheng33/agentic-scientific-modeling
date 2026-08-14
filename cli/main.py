@@ -11,9 +11,10 @@ from typing import Any
 
 from langgraph.types import Command
 
-from agents.planner.synthetic_generator import generate_datasets, preview_manifest
+from agents.planner.runner import PlannerConfig
 from agents.characterization.runner import CharacterizationConfig
 from agents.characterization.rag_store import (
+    PersistentCorpusRetriever,
     PersistentPaperRetriever,
     build_persistent_index,
     index_status,
@@ -63,20 +64,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     plan.add_argument("--workflow-id")
 
-    datasets = commands.add_parser(
-        "datasets",
-        help="Preview or generate synthetic datasets from the approved experiment plan",
-    )
-    datasets.add_argument("--workflow-id")
-    datasets.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Show required datasets and storage without writing data",
-    )
-
     benchmark = commands.add_parser(
         "benchmark",
-        help="Prepare reviewed benchmark commands or execute an approved manifest",
+        help="Prepare reviewed remote scripts or execute an approved manifest",
     )
     benchmark.add_argument("--workflow-id")
     benchmark.add_argument(
@@ -96,6 +86,12 @@ def build_parser() -> argparse.ArgumentParser:
     rag.add_argument("action", choices=("build", "status", "search"))
     rag.add_argument("--config", type=Path, default=PROJECT_ROOT / "config.toml")
     rag.add_argument("--query", help="Required for the search action")
+    jlse_rag = commands.add_parser(
+        "jlse-rag", help="Build, inspect, or query the JLSE operational runbook index"
+    )
+    jlse_rag.add_argument("action", choices=("build", "status", "search"))
+    jlse_rag.add_argument("--config", type=Path, default=PROJECT_ROOT / "config.toml")
+    jlse_rag.add_argument("--query", help="Required for the search action")
     return parser
 
 
@@ -292,74 +288,6 @@ def start_planning(args: argparse.Namespace) -> None:
     print_state(after.values, after.next)
 
 
-def _format_bytes(value: int) -> str:
-    amount = float(value)
-    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
-        if amount < 1024.0 or unit == "TiB":
-            return f"{amount:.2f} {unit}"
-        amount /= 1024.0
-    raise AssertionError("unreachable")
-
-
-def prepare_datasets(args: argparse.Namespace) -> None:
-    workflow_id = configured_workflow_id(args)
-    run_dir, store = workflow_paths(args.runs_root, workflow_id)
-    require_existing_run(run_dir)
-    config = graph_config(workflow_id)
-    with open_graph(run_dir, workflow_type(store)) as graph:
-        snapshot = graph.get_state(config)
-        values = snapshot.values
-        plan_reference = (
-            values.get("experiment_plan_ref")
-            if args.dry_run
-            else values.get("approved_experiment_plan_ref")
-        )
-        if not plan_reference:
-            if args.dry_run:
-                raise ValueError("No experiment plan is available to preview")
-            raise ValueError(
-                "Approve the experiment plan first with ./agentic resume"
-            )
-        plan_ref = ArtifactRef.model_validate(plan_reference)
-        plan_document = store.read_artifact(plan_ref)
-        preview = preview_manifest(plan_document)
-
-        print(f"plan: {plan_ref.path}")
-        print(f"unique_datasets: {preview['dataset_count']}")
-        print(
-            "logical_diffraction_storage: "
-            f"{_format_bytes(preview['total_logical_diffraction_bytes'])}"
-        )
-        for dataset in preview["datasets"]:
-            shape = dataset["detector_shape"]
-            print(
-                f"  {dataset['dataset_id']}: "
-                f"dp[{dataset['scan_point_count']}, {shape[0]}, {shape[1]}], "
-                f"{_format_bytes(dataset['logical_diffraction_bytes'])}"
-            )
-        if args.dry_run:
-            print("dry_run: no files written")
-            return
-
-        manifest = generate_datasets(plan_document, run_dir)
-        manifest_ref = store.write_artifact(
-            stage="dataset_preparation",
-            artifact_type="synthetic_dataset_manifest",
-            version=plan_ref.version,
-            payload=manifest,
-        )
-        graph.update_state(
-            config,
-            {
-                "synthetic_dataset_manifest_ref": manifest_ref.model_dump(mode="json"),
-                "current_stage": "dataset_preparation_complete",
-                "workflow_status": "datasets_ready",
-            },
-        )
-    print(f"manifest: {run_dir / manifest_ref.path}")
-    print(f"dataset_root: {manifest['dataset_root']}")
-
-
 def benchmark_workflow(args: argparse.Namespace) -> None:
     workflow_id = configured_workflow_id(args)
     run_dir, store = workflow_paths(args.runs_root, workflow_id)
@@ -370,6 +298,8 @@ def benchmark_workflow(args: argparse.Namespace) -> None:
         values = before.values
         if values.get("pending_review"):
             raise ValueError("Complete the current pending review first")
+        if not values.get("config_path"):
+            raise ValueError("Benchmark workflow requires the workflow config path")
         if args.execute:
             if not values.get("approved_benchmark_manifest_ref"):
                 raise ValueError("Approve the benchmark run manifest before execution")
@@ -378,17 +308,15 @@ def benchmark_workflow(args: argparse.Namespace) -> None:
             graph.update_state(
                 config,
                 {
-                    "route": "execute_benchmark",
-                    "current_stage": "benchmark_execution",
-                    "workflow_status": "benchmark_executing",
+                    "route": "remote_execute_benchmark",
+                    "current_stage": "remote_execution",
+                    "workflow_status": "remote_executing",
                 },
                 as_node="apply_benchmark_review",
             )
         else:
             if not values.get("approved_experiment_plan_ref"):
                 raise ValueError("Benchmark preparation requires an approved experiment plan")
-            if not values.get("synthetic_dataset_manifest_ref"):
-                raise ValueError("Generate synthetic datasets before benchmark preparation")
             if values.get("benchmark_manifest_ref"):
                 raise ValueError("Benchmark preparation has already started")
             graph.update_state(
@@ -449,6 +377,49 @@ def manage_rag_index(args: argparse.Namespace) -> None:
     )
 
 
+def manage_jlse_rag_index(args: argparse.Namespace) -> None:
+    config = PlannerConfig.from_file(args.config)
+    if config.operational_rag_corpus_path is None or config.operational_rag_index_path is None:
+        raise ValueError("Configure planner.rag corpus_path and index_path")
+    if args.action == "status":
+        print(
+            json.dumps(
+                index_status(
+                    config.operational_rag_corpus_path,
+                    config.operational_rag_index_path,
+                    config.operational_rag_settings,
+                ),
+                indent=2,
+            )
+        )
+        return
+    if args.action == "build":
+        manifest = build_persistent_index(
+            config.operational_rag_corpus_path,
+            config.operational_rag_index_path,
+            config.operational_rag_settings,
+        )
+        print(json.dumps(manifest, indent=2))
+        return
+    query = str(args.query or "").strip()
+    if not query:
+        raise ValueError("jlse-rag search requires --query")
+    retriever = PersistentCorpusRetriever(
+        config.operational_rag_corpus_path,
+        config.operational_rag_index_path,
+        config.operational_rag_settings,
+        source_label="operational_source",
+    )
+    print(
+        retriever.render_context(
+            query,
+            top_k=config.operational_rag_top_k,
+            max_chars=config.operational_rag_max_context_chars,
+            parent_context_chars=config.operational_rag_parent_context_chars,
+        )
+    )
+
+
 def main() -> None:
     args = build_parser().parse_args()
     try:
@@ -462,8 +433,6 @@ def main() -> None:
             resume_workflow(args)
         elif args.command == "plan":
             start_planning(args)
-        elif args.command == "datasets":
-            prepare_datasets(args)
         elif args.command == "benchmark":
             benchmark_workflow(args)
         elif args.command == "continue":
@@ -472,6 +441,8 @@ def main() -> None:
             print(sha256_file(args.path.expanduser().resolve(strict=True)))
         elif args.command == "rag-index":
             manage_rag_index(args)
+        elif args.command == "jlse-rag":
+            manage_jlse_rag_index(args)
         else:
             raise ValueError(f"Unknown command: {args.command}")
     except (ValueError, RuntimeError) as exc:

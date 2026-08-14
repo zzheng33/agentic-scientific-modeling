@@ -10,7 +10,7 @@ from typing import Any
 
 from schemas.characterization import CandidateInputsDocument
 
-from .rag_store import PersistentPaperRetriever, RAGIndexSettings
+from .rag_store import PersistentPaperRetriever, RAGIndexSettings, rag_settings_from_mapping
 from .tools import CodebaseTools
 
 
@@ -97,33 +97,7 @@ class CharacterizationConfig:
         rag_top_k = int(rag_config.get("top_k", 6))
         rag_max_context_chars = int(rag_config.get("max_context_chars", 12000))
         rag_parent_context_chars = int(rag_config.get("parent_context_chars", 2600))
-        rag_settings = RAGIndexSettings(
-            embedding_model=str(rag_config.get("embedding_model", "BAAI/bge-m3")),
-            reranker_model=str(
-                rag_config.get("reranker_model", "BAAI/bge-reranker-v2-m3")
-            ),
-            parent_chunk_chars=int(rag_config.get("parent_chunk_chars", 6000)),
-            child_chunk_chars=int(rag_config.get("child_chunk_chars", 1200)),
-            child_overlap_chars=int(rag_config.get("child_overlap_chars", 180)),
-            embedding_batch_size=int(rag_config.get("embedding_batch_size", 8)),
-            embedding_max_length=int(rag_config.get("embedding_max_length", 8192)),
-            reranker_batch_size=int(rag_config.get("reranker_batch_size", 8)),
-            reranker_max_length=int(rag_config.get("reranker_max_length", 2048)),
-            use_fp16=bool(rag_config.get("use_fp16", False)),
-            hnsw_m=int(rag_config.get("hnsw_m", 16)),
-            hnsw_ef_construction=int(rag_config.get("hnsw_ef_construction", 200)),
-            hnsw_ef_search=int(rag_config.get("hnsw_ef_search", 96)),
-            bm25_top_n=int(rag_config.get("bm25_top_n", 50)),
-            dense_top_n=int(rag_config.get("dense_top_n", 50)),
-            fusion_top_n=int(rag_config.get("fusion_top_n", 50)),
-            rerank_top_n=int(rag_config.get("rerank_top_n", 15)),
-            rrf_offset=int(rag_config.get("rrf_offset", 60)),
-            bm25_weight=float(rag_config.get("bm25_weight", 0.55)),
-            dense_weight=float(rag_config.get("dense_weight", 0.45)),
-            diversity_lambda=float(rag_config.get("diversity_lambda", 0.82)),
-            same_parent_penalty=float(rag_config.get("same_parent_penalty", 0.12)),
-            max_children_per_paper=int(rag_config.get("max_children_per_paper", 3)),
-        )
+        rag_settings = rag_settings_from_mapping(rag_config)
         if rag_enabled and rag_corpus_path is None:
             raise ValueError(
                 "characterization.rag.corpus_path is required when RAG is enabled"
