@@ -48,6 +48,7 @@ class WorkflowState(TypedDict, total=False):
     systemflow_model_ref: dict[str, Any] | None
     integration_report_ref: dict[str, Any] | None
     approved_integration_ref: dict[str, Any] | None
+    systemflow_deployment_ref: dict[str, Any] | None
     input_revision: int
     characterization_revision: int
     planning_revision: int

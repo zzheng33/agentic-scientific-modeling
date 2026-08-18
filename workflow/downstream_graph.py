@@ -21,6 +21,7 @@ from agents.remote_executor.runner import RemoteExecutorConfig, execute_remote_b
 from agents.systemflow_integration.runner import (
     SystemFlowIntegrationAgent,
     prepare_systemflow_model,
+    publish_systemflow_application_model,
     render_systemflow_json,
     validate_mapping,
     validate_systemflow_integration,
@@ -721,10 +722,35 @@ def apply_integration_review(state: WorkflowState) -> dict[str, Any]:
             "integration_feedback": review.feedback,
             "workflow_status": "systemflow_integration_needs_revision",
         }
+    store = _store(state)
+    report_path = store.verify_artifact(approved)
+    report = store.read_artifact(approved)
+    mapped_ref = ArtifactRef.model_validate(report["mapped_model_artifact"])
+    mapping_ref = ArtifactRef.model_validate(report["mapping_artifact"])
+    validation = store.read_artifact(_ref(state, "approved_validation_ref"))
+    fixture = validation.get("pipeline_fixture", {})
+    scientific_use = not bool(fixture.get("enabled", False)) and bool(
+        fixture.get("scientific_use", True)
+    )
+    deployment = publish_systemflow_application_model(
+        report["systemflow_root"],
+        report["application_id"],
+        store.verify_artifact(mapped_ref),
+        store.verify_artifact(mapping_ref),
+        report_path,
+        scientific_use=scientific_use,
+    )
+    deployment_ref = store.write_artifact(
+        stage=INTEGRATION_STAGE,
+        artifact_type="systemflow_deployment_manifest",
+        version=approved.version,
+        payload=deployment,
+    )
     return {
         **common,
         "integration_report_ref": approved.model_dump(mode="json"),
         "approved_integration_ref": approved.model_dump(mode="json"),
+        "systemflow_deployment_ref": deployment_ref.model_dump(mode="json"),
         "route": "complete",
         "current_stage": "complete",
         "workflow_status": "complete",

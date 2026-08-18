@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import os
+import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +20,102 @@ from agents.characterization.tools import CodebaseTools
 SOURCES = {"message.fields", "message.properties", "component.parameters"}
 DESTINATIONS = {"message.fields", "message.properties", "host.properties"}
 TRANSFORMS = {"identity", "int", "float", "tuple_int", "list_int", "str"}
+_APPLICATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _atomic_copy(source: Path, destination: Path) -> None:
+    """Copy an immutable deployment asset without exposing a partial file."""
+    if destination.exists():
+        if not destination.is_file() or _sha256(destination) != _sha256(source):
+            raise ValueError(
+                f"SystemFlow deployment asset already exists with different content: "
+                f"{destination}"
+            )
+        return
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    os.close(fd)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copyfile(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def publish_systemflow_application_model(
+    systemflow_root: str | Path,
+    application_id: str,
+    model_path: str | Path,
+    mapping_path: str | Path,
+    integration_report_path: str | Path,
+    *,
+    scientific_use: bool,
+) -> dict[str, Any]:
+    """Publish approved integration assets into SystemFlow's loadable data tree."""
+    if not _APPLICATION_ID.fullmatch(application_id):
+        raise ValueError(f"Invalid SystemFlow application_id: {application_id!r}")
+
+    root = Path(systemflow_root).expanduser().resolve(strict=True)
+    runtime = root / "systemflow" / "application_models.py"
+    if not runtime.is_file():
+        raise ValueError(f"SystemFlow generic application runtime is missing: {runtime}")
+
+    sources = {
+        "model": Path(model_path).expanduser().resolve(strict=True),
+        "mapping": Path(mapping_path).expanduser().resolve(strict=True),
+        "integration_report": Path(integration_report_path).expanduser().resolve(strict=True),
+    }
+    if any(not path.is_file() for path in sources.values()):
+        raise ValueError("Every SystemFlow deployment source must be a file")
+
+    destination = root / "systemflow" / "application_model_data" / application_id
+    destination.mkdir(parents=True, exist_ok=True)
+    assets: dict[str, dict[str, str]] = {}
+    for name, source in sources.items():
+        deployed = destination / source.name
+        source_hash = _sha256(source)
+        if deployed.exists() and (
+            not deployed.is_file() or _sha256(deployed) != source_hash
+        ):
+            # Artifact versions are local to a workflow, so another workflow can
+            # legitimately produce different v001 content for the same app.
+            deployed = destination / f"{source.stem}.{source_hash[:12]}{source.suffix}"
+        _atomic_copy(source, deployed)
+        assets[name] = {"path": deployed.name, "sha256": _sha256(deployed)}
+
+    manifest = {
+        "schema_version": "systemflow-application-deployment-0.1",
+        "application_id": application_id,
+        "runtime": "systemflow.application_models",
+        "scientific_use": bool(scientific_use),
+        "assets": assets,
+    }
+    manifest_path = destination / "manifest.json"
+    encoded = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    fd, temporary_name = tempfile.mkstemp(prefix=".manifest.", dir=destination)
+    os.close(fd)
+    temporary = Path(temporary_name)
+    try:
+        temporary.write_bytes(encoded)
+        os.replace(temporary, manifest_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+    return {
+        **manifest,
+        "manifest_path": str(manifest_path),
+        "manifest_sha256": _sha256(manifest_path),
+    }
 
 
 class SystemFlowIntegrationAgent:

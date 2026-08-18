@@ -4,6 +4,26 @@ This document shows how to load an application resource model produced by the
 Agentic Scientific Modeling workflow, evaluate it directly, and use it as a
 mutation in a SystemFlow `ExecutionGraph`.
 
+## Automatic publication after integration approval
+
+The SystemFlow Integration Agent publishes the approved assets when the final
+`systemflow_integration_review` is approved and `./agentic resume` runs. No
+manual copy is required. For the current application, SystemFlow receives:
+
+```text
+/Users/zhongzheng/Desktop/workspace/systemflow/systemflow/
+  application_model_data/pty-chi/
+    manifest.json
+    workflow_application_resource_model.v002.json
+    systemflow_application_mapping.v001.yaml
+    systemflow_integration_report.v002.yaml
+```
+
+`manifest.json` is the stable entry point. It records the active versioned file
+names, their SHA-256 hashes, the runtime module, and whether the measurements
+are suitable for scientific use. The current five-row pipeline fixture is
+published with `scientific_use: false`.
+
 ## Runtime and integration artifacts
 
 The runtime implementation is application-independent:
@@ -21,7 +41,8 @@ It provides:
 - `ApplicationInputSource`, which supplies inputs mapped from message fields or
   properties.
 
-The current PtyChi integration uses these workflow artifacts:
+Before final approval, the current PtyChi integration assets remain workflow
+artifacts:
 
 ```text
 runs/ptychi_001/artifacts/systemflow_mapping/
@@ -44,17 +65,13 @@ resource estimate is needed:
 
 ```python
 from pathlib import Path
+import json
 import sys
 
 SYSTEMFLOW_ROOT = Path("/Users/zhongzheng/Desktop/workspace/systemflow")
-AGENTIC_ROOT = Path(
-    "/Users/zhongzheng/Desktop/workspace/agentic-scientific-modeling"
-)
-MODEL_PATH = (
-    AGENTIC_ROOT
-    / "runs/ptychi_001/artifacts/systemflow_mapping/"
-      "workflow_application_resource_model.v002.json"
-)
+DEPLOYMENT_ROOT = SYSTEMFLOW_ROOT / "systemflow/application_model_data/pty-chi"
+manifest = json.loads((DEPLOYMENT_ROOT / "manifest.json").read_text(encoding="utf-8"))
+MODEL_PATH = DEPLOYMENT_ROOT / manifest["assets"]["model"]["path"]
 
 sys.path.insert(0, str(SYSTEMFLOW_ROOT))
 
@@ -98,23 +115,15 @@ selectors, output destinations, names, and type conversions.
 
 ```python
 from pathlib import Path
+import json
 import sys
 import yaml
 
 SYSTEMFLOW_ROOT = Path("/Users/zhongzheng/Desktop/workspace/systemflow")
-AGENTIC_ROOT = Path(
-    "/Users/zhongzheng/Desktop/workspace/agentic-scientific-modeling"
-)
-MODEL_PATH = (
-    AGENTIC_ROOT
-    / "runs/ptychi_001/artifacts/systemflow_mapping/"
-      "workflow_application_resource_model.v002.json"
-)
-MAPPING_PATH = (
-    AGENTIC_ROOT
-    / "runs/ptychi_001/artifacts/systemflow_mapping_review/"
-      "systemflow_application_mapping.v001.yaml"
-)
+DEPLOYMENT_ROOT = SYSTEMFLOW_ROOT / "systemflow/application_model_data/pty-chi"
+manifest = json.loads((DEPLOYMENT_ROOT / "manifest.json").read_text(encoding="utf-8"))
+MODEL_PATH = DEPLOYMENT_ROOT / manifest["assets"]["model"]["path"]
+MAPPING_PATH = DEPLOYMENT_ROOT / manifest["assets"]["mapping"]["path"]
 
 sys.path.insert(0, str(SYSTEMFLOW_ROOT))
 
