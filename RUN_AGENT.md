@@ -162,8 +162,19 @@ id = "ptychi_002"
 [application]
 path = "../pty-chi/"
 
-[planner]
-default_hardware = ["GH200"]
+[[machine]]
+accelerator = "GH200"
+queue = "gpu_gh200"
+nodes = 1
+walltime_minutes = 30
+module_path = "/soft/modulefiles"
+modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
+conda_env = "ptychopinn_torch_arm"
+remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
+device = "cuda"
+power_vendor = "nvidia"
+devices = "0"
+power_interval_s = 0.2
 
 [remote_executor]
 enabled = true
@@ -171,20 +182,8 @@ host = "zhong.zheng@login.jlse.anl.gov"
 remote_runs_root = "/home/zhong.zheng/agentic-runs"
 remote_application_path = "/home/zhong.zheng/pty-chi"
 upload_application = true
-hardware_id = "GH200"
-queue = "gpu_gh200"
-nodes = 1
-walltime_minutes = 30
 poll_interval_s = 15
 poll_timeout_s = 3600
-module_path = "/soft/modulefiles"
-modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
-conda_env = "ptychopinn_torch_arm"
-remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
-device = "cuda"
-vendor = "nvidia"
-devices = "0"
-power_interval_s = 0.2
 continue_on_error = true
 ```
 
@@ -193,12 +192,12 @@ application source. Set it to false only when intentionally reusing the checkout
 at `remote_application_path`. Passwords and Duo choices must not be added to
 the configuration.
 
-The platform profile is fixed configuration, not LLM output. For another GPU,
-select its queue, module list, Conda environment, device, and power vendor in
-`config.toml` before planning. The generated scripts can use those supplied
-values but cannot load modules or activate a different environment themselves.
-The approved plan must target exactly this `hardware_id`; use a separate
-reviewed execution/profile for another GPU.
+Each `[[machine]]` table defines one JLSE accelerator and its fixed queue and
+runtime environment. Repeat the table to target additional accelerators. The
+planner uses exactly the configured accelerator names, while the remote executor
+splits the approved matrix by accelerator and submits each subset to that
+profile's queue. Queue selection, module loading, Conda activation, SSH/SCP, and
+qsub remain fixed code and configuration, not LLM output.
 
 ## 3. Start characterization
 
@@ -221,8 +220,9 @@ Open the reported YAML file. To approve it, set the following review fields:
 ```yaml
 status: completed
 decision: approve
-reviewer: Your Name
 ```
+
+`reviewer` is optional. Leave it as `null` or provide a name for provenance.
 
 Then resume:
 
@@ -258,6 +258,18 @@ application-specific dataset script that runs inside the compute allocation.
 ./agentic benchmark
 ./agentic status
 ```
+
+For a minimal execution-path smoke test, replace an already approved plan with
+one existing base point, one algorithm, zero warmups, and one measured run per
+configured accelerator:
+
+```bash
+./agentic plan --smoke --algorithm pie --point-id p001
+```
+
+This creates a new immutable plan and matrix version and reopens plan review.
+It invalidates previously approved benchmark scripts. A smoke plan verifies
+execution but does not contain enough samples for downstream resource fitting.
 
 The Execution Script Agent reads the application source, approved
 characterization and plan, experiment matrix, fixed remote platform profile,
@@ -302,11 +314,10 @@ Run this command in a real interactive terminal:
 ./agentic benchmark --execute
 ```
 
-At the JLSE authentication prompts:
-
-1. Enter your login credential at the first prompt.
-2. Select the displayed Duo Push option (currently option `1`).
-3. Approve the request on your phone.
+The executor reads `ssh_password` and `ssh_duo_choice` from `[remote_executor]`,
+answers the two SSH console prompts, and reuses that authenticated connection.
+Approve the resulting Duo request on your phone. The password is plaintext in
+`config.toml`, so keep that file private and do not commit credentials.
 
 The executor opens one SSH multiplexed connection and then automatically:
 
@@ -314,16 +325,17 @@ The executor opens one SSH multiplexed connection and then automatically:
 build versioned bundle
 → SCP upload
 → verify bundle SHA-256
-→ qsub to gpu_gh200
+→ qsub each accelerator subset to its configured queue
 → qstat polling
 → SCP results back
 → measurement extraction
 ```
 
 The bundle contains the approved plan/matrix, both approved scripts, application
-source, and a fixed GH200 environment wrapper. The wrapper runs the exact
-approved `benchmark_job.sh`, which invokes the approved
-`dataset_generation.sh` inside the allocation. Results are downloaded to:
+source, and fixed environment wrappers. On the remote login host, the executor
+runs the exact approved `dataset_generation.sh` and validates its manifest. Only
+after that succeeds does it call qsub; the allocation then runs the approved
+`benchmark_job.sh`. Results are downloaded to:
 
 ```text
 runs/<workflow-id>/remote_results/vNNN/results/

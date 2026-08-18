@@ -18,6 +18,7 @@ from schemas.review import ReviewDocument
 
 
 _WORKFLOW_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_ARTIFACT_VERSION = re.compile(r"\.v(\d+)\.")
 
 
 def utc_now() -> datetime:
@@ -121,6 +122,21 @@ class ArtifactStore:
             path=relative.as_posix(),
             sha256=sha256_file(path),
         )
+
+    def next_artifact_version(self, stage: str, *, minimum: int = 1) -> int:
+        """Return a version above any complete or partial artifact in a stage."""
+        if minimum < 1:
+            raise ValueError("Artifact version minimum must be positive")
+        directory = self._resolve(Path("artifacts") / stage)
+        highest = 0
+        if directory.is_dir():
+            for path in directory.iterdir():
+                if not path.is_file():
+                    continue
+                match = _ARTIFACT_VERSION.search(path.name)
+                if match:
+                    highest = max(highest, int(match.group(1)))
+        return max(minimum, highest + 1)
 
     def write_text_artifact(
         self,

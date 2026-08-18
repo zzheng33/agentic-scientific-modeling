@@ -1,0 +1,22 @@
+review:
+  workflow_id: ptychi_001
+  stage: characterization_review
+  status: completed
+  decision: approve
+  artifact:
+    artifact_type: application_characterization
+    stage: characterization_review
+    version: 1
+    path: artifacts/characterization_review/application_characterization.v001.yaml
+    sha256: d38c8a45c20e9c6ac7309dee9ce455bdaeed9758566edaef0be8ef3f0b4d7cd0
+  edited_artifact: null
+  feedback: null
+  reviewer: zz
+  reviewed_at: null
+  accepted_at: null
+  provenance:
+    source_revision: 34db7f3226927c23385d7b816bc213eba02b3c60
+    generated_at: '2026-08-18T18:21:04.143158Z'
+    agent_version: characterization-graph-0.1
+    prompt_version: characterization-0.1
+    tool_version: codebase-tools-0.1

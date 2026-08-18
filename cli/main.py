@@ -11,7 +11,7 @@ from typing import Any
 
 from langgraph.types import Command
 
-from agents.planner.runner import PlannerConfig
+from agents.planner.runner import PlannerConfig, build_smoke_plan
 from agents.characterization.runner import CharacterizationConfig
 from agents.characterization.rag_store import (
     PersistentCorpusRetriever,
@@ -63,6 +63,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Start experiment planning from an approved characterization",
     )
     plan.add_argument("--workflow-id")
+    plan.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Replace an approved plan with a one-run smoke-plan revision",
+    )
+    plan.add_argument("--algorithm", default="pie", help="Algorithm group for --smoke")
+    plan.add_argument("--point-id", default="p001", help="Existing base point for --smoke")
 
     benchmark = commands.add_parser(
         "benchmark",
@@ -268,6 +275,44 @@ def start_planning(args: argparse.Namespace) -> None:
         values = before.values
         if values.get("pending_review"):
             raise ValueError("Complete the current pending review before planning")
+        if args.smoke:
+            if not values.get("approved_experiment_plan_ref"):
+                raise ValueError("A smoke revision requires an approved experiment plan")
+            if values.get("measurements_ref"):
+                raise ValueError("Cannot revise the plan after benchmark measurements exist")
+            approved = store.read_artifact(
+                ArtifactRef.model_validate(values["approved_experiment_plan_ref"])
+            )
+            smoke = build_smoke_plan(
+                approved,
+                PlannerConfig.from_file(values.get("config_path")),
+                algorithm_group_id=args.algorithm,
+                point_id=args.point_id,
+            )
+            graph.update_state(
+                config,
+                {
+                    "working_artifact": smoke,
+                    "route": None,
+                    "current_stage": "experiment_planning",
+                    "workflow_status": "planning_smoke_revision",
+                    "experiment_plan_ref": None,
+                    "experiment_matrix_ref": None,
+                    "approved_experiment_plan_ref": None,
+                    "benchmark_manifest_ref": None,
+                    "dataset_generation_script_ref": None,
+                    "benchmark_job_script_ref": None,
+                    "approved_benchmark_manifest_ref": None,
+                    "benchmark_execution_ref": None,
+                    "remote_execution_ref": None,
+                    "measurements_ref": None,
+                },
+                as_node="derive_experiment_plan",
+            )
+            graph.invoke(None, config=config)
+            after = graph.get_state(config)
+            print_state(after.values, after.next)
+            return
         if not values.get("approved_characterization_ref"):
             raise ValueError("Planning requires an approved characterization")
         if values.get("experiment_plan_ref"):

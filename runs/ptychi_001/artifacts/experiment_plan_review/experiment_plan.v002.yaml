@@ -1,0 +1,799 @@
+schema_version: '0.2'
+plan:
+  plan_id: pty-chi-gh200-reduced-pilot-2026-08-18-v1
+  created_at: '2026-08-18T00:00:00Z'
+  status: awaiting_human_review
+  summary: 'Smoke-only plan: pie, p001, one repetition per accelerator.'
+source_characterization:
+  analysis_id: pty-chi-input-discovery-2026-08-18
+  application_name: pty-chi
+  status: approved
+  workload_formulas:
+    total_flops: null
+    total_input_bytes: null
+    total_output_bytes: null
+objective:
+  predict:
+  - end_to_end_latency
+  - accelerator_power
+  - accelerator_energy
+  - end_to_end_throughput
+  - peak_accelerator_memory
+  as_function_of:
+  - n_scan_points
+  - detector_shape
+  - diffraction_storage_dtype
+  - object_shape
+  - probe_shape
+  - num_epochs
+  - batch_size
+  - dm_chunk_length
+  - batching_mode
+  - optimized_parameter_groups
+  - forward_propagation_configuration
+  - forward_model_memory_options
+  - optional_feature_schedule
+  - compute_precision
+  - data_residency
+  system_boundary: The characterization covers task construction, dataset preprocessing,
+    iterative reconstruction, major propagation and pixelwise work, diffraction storage
+    reads, accelerator transfers, and optional runner output. Alternative reconstructors
+    are separate model groups sharing the approved candidate-input vector. Exact executed
+    FLOPs for PyTorch FFTs, automatic differentiation, interpolation, optimizers,
+    optional features, and variant-specific analytical updates remain unresolved where
+    source code does not establish a portable arithmetic count.
+  intended_use: Fit separate system-level latency, power, energy, throughput, and
+    peak-memory models for each approved pty-chi algorithm group over a common input
+    space. This pilot is intended to validate executability, measurement quality,
+    major scaling directions, and model identifiability before expanding the design.
+variables:
+- input_id: n_scan_points
+  symbol: N
+  role: sweep
+  sampling_strategy: Logarithmic boundary-and-interior sampling, with one repeated
+    high-N level used to separate detector-size and residency effects.
+  values:
+  - 64
+  - 256
+  - 1024
+  fixed_value: null
+  intended_domain:
+    pilot_minimum: 64
+    pilot_maximum: 1024
+    units: patterns
+  rationale: N appears directly in iterative FLOP, input-byte, transfer, DM persistent-memory,
+    and minibatch-count formulas and therefore requires variation.
+- input_id: detector_shape
+  symbol: '[H_d,W_d]'
+  role: sweep
+  sampling_strategy: Selected square resolutions spanning a 16-fold detector-pixel
+    range; the high-N small-detector point reduces confounding with N.
+  values:
+  - - 64
+    - 64
+  - - 128
+    - 128
+  - - 256
+    - 256
+  fixed_value: null
+  intended_domain:
+    height_pixels:
+    - 64
+    - 256
+    width_pixels:
+    - 64
+    - 256
+    pilot_shape_policy: square
+  rationale: Detector dimensions determine diffraction payload bytes and materially
+    affect detector-space work. Non-square support remains in the approved domain
+    but is deferred from this reduced pilot.
+- input_id: diffraction_storage_dtype
+  symbol: dtype_data
+  role: fixed
+  sampling_strategy: Use the benchmark-compatible floating-point storage type at all
+    pilot points.
+  values:
+  - float32
+  fixed_value: float32
+  intended_domain:
+    approved_examples:
+    - float16
+    - float32
+    - float64
+    - integer detector dtype
+  rationale: Storage dtype affects I/O and transfers, but varying it would consume
+    scarce shared points and introduce conversion behavior. Float32 is aligned with
+    the selected compute profile.
+- input_id: object_shape
+  symbol: '[S,H_o,W_o]'
+  role: sweep
+  sampling_strategy: Selected single-slice spatial extents matched to deterministic
+    scan geometries and probe support.
+  values:
+  - - 1
+    - 128
+    - 128
+  - - 1
+    - 256
+    - 256
+  - - 1
+    - 384
+    - 384
+  - - 1
+    - 768
+    - 768
+  fixed_value: null
+  intended_domain:
+    n_slices: 1
+    height_pixels:
+    - 128
+    - 768
+    width_pixels:
+    - 128
+    - 768
+  rationale: Object dimensions affect persistent and optimizer-state memory and output
+    bytes. S is held at one because DM and BH reject multislice objects, allowing
+    every base point to be reused by every algorithm group.
+- input_id: probe_shape
+  symbol: '[M_opr,M_probe,H_p,W_p]'
+  role: sweep
+  sampling_strategy: Vary spatial support with detector resolution while holding both
+    mode counts at one for cross-group validity.
+  values:
+  - - 1
+    - 1
+    - 64
+    - 64
+  - - 1
+    - 1
+    - 128
+    - 128
+  - - 1
+    - 1
+    - 256
+    - 256
+  fixed_value: null
+  intended_domain:
+    opr_modes: 1
+    incoherent_modes: 1
+    height_pixels:
+    - 64
+    - 256
+    width_pixels:
+    - 64
+    - 256
+  rationale: Probe spatial dimensions drive FFT, wavefield, and temporary-memory terms.
+    M_opr=1 is required by DM and BH; M_probe=1 avoids adding a mode interaction before
+    the common single-mode profile is validated.
+- input_id: num_epochs
+  symbol: E
+  role: sweep
+  sampling_strategy: Selected short logarithmic-like levels suitable for a pilot while
+    exposing iteration scaling.
+  values:
+  - 2
+  - 5
+  - 10
+  fixed_value: null
+  intended_domain:
+    pilot_minimum: 2
+    pilot_maximum: 10
+    units: epochs
+  rationale: E directly multiplies most reconstruction work and streamed transfer
+    terms. The production default of 500 is intentionally outside this initial pilot
+    because all eight groups must fit under the run budget.
+- input_id: batch_size
+  symbol: B
+  role: sweep
+  sampling_strategy: Selected powers of two from serial to moderate minibatching,
+    always no greater than N.
+  values:
+  - 1
+  - 8
+  - 32
+  fixed_value: null
+  intended_domain:
+    pilot_minimum: 1
+    pilot_maximum: 32
+    units: patterns per minibatch
+  rationale: B affects minibatch count, temporary tensors, transfer granularity, and
+    peak memory. The plan requires an API-compatible harness that preserves assigned
+    effective B; the benchmark runner's PIE-specific B=1 override must not silently
+    alter matrix values.
+- input_id: dm_chunk_length
+  symbol: C_dm
+  role: sweep
+  sampling_strategy: Selected powers of two, including values both equal to and smaller
+    than B, while remaining no greater than N.
+  values:
+  - 1
+  - 8
+  - 32
+  fixed_value: null
+  intended_domain:
+    pilot_minimum: 1
+    pilot_maximum: 32
+    units: scan points per chunk
+  rationale: C_dm controls DM chunk-loop count and temporary memory. For non-DM groups
+    it is assigned and recorded but is expected to be non-operative, providing an
+    applicability check without treating algorithm as an input.
+- input_id: batching_mode
+  symbol: mode_batch
+  role: fixed
+  sampling_strategy: Use the benchmark-runner default RANDOM mode.
+  values:
+  - RANDOM
+  fixed_value: RANDOM
+  intended_domain:
+    approved_values:
+    - RANDOM
+    - COMPACT
+    - UNIFORM
+  rationale: COMPACT and UNIFORM introduce geometry-dependent setup work that cannot
+    be represented fully without the excluded coordinate array. RANDOM avoids this
+    unresolved confound in the pilot.
+- input_id: optimized_parameter_groups
+  symbol: G_opt
+  role: fixed
+  sampling_strategy: Use one common object-and-probe optimization schedule across
+    all points.
+  values:
+  - object:
+      optimizable: true
+      start: 0
+      stop: null
+      stride: 1
+    probe:
+      optimizable: true
+      start: 0
+      stop: null
+      stride: 1
+    probe_positions:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+    opr_mode_weights:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+    slice_spacings:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+  fixed_value:
+    object:
+      optimizable: true
+      start: 0
+      stop: null
+      stride: 1
+    probe:
+      optimizable: true
+      start: 0
+      stop: null
+      stride: 1
+    probe_positions:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+    opr_mode_weights:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+    slice_spacings:
+      optimizable: false
+      start: 0
+      stop: null
+      stride: 1
+  intended_domain: null
+  rationale: Active groups and schedules change backward work and optimizer state,
+    but the four-point budget cannot identify schedule effects. A common object-and-probe
+    profile exercises the principal reconstruction path.
+- input_id: forward_propagation_configuration
+  symbol: P_fwd
+  role: fixed
+  sampling_strategy: Use a single-slice far-field profile.
+  values:
+  - free_space_propagation_distance_m: infinity
+    wavelength_m: 1.0e-09
+    slice_spacings_m: null
+  fixed_value:
+    free_space_propagation_distance_m: infinity
+    wavelength_m: 1.0e-09
+    slice_spacings_m: null
+  intended_domain:
+    regime: far-field
+    n_slices: 1
+  rationale: Propagation regime changes FFT structure, but near-field and multislice
+    cases add scientific sampling requirements and violate DM/BH multislice restrictions.
+    The approved far-field default is used.
+- input_id: forward_model_memory_options
+  symbol: F_opts
+  role: fixed
+  sampling_strategy: Use one common non-low-memory, unblurred profile with four pixels
+    of shift padding.
+  values:
+  - low_memory_mode: false
+    pad_for_shift: 4
+    diffraction_pattern_blur_sigma: null
+  fixed_value:
+    low_memory_mode: false
+    pad_for_shift: 4
+    diffraction_pattern_blur_sigma: null
+  intended_domain: null
+  rationale: These options affect work and memory but cannot be separated in four
+    points. Padding of four matches the characterized BH runner configuration and
+    is applied uniformly so algorithm groups receive the same input vector.
+- input_id: optional_feature_schedule
+  symbol: F_enabled
+  role: fixed
+  sampling_strategy: Disable optional constraints, corrections, regularizers, neural
+    priors, and dictionary learning.
+  values:
+  - enabled_features: []
+  fixed_value:
+    enabled_features: []
+  intended_domain: null
+  rationale: Feature-specific architecture dimensions are unresolved in the approved
+    characterization. Disabling these features produces an auditable common baseline.
+- input_id: compute_precision
+  symbol: '[dtype_compute,fft64]'
+  role: fixed
+  sampling_strategy: Use the benchmark-runner float32/complex64 profile without a
+    double-precision FFT override.
+  values:
+  - default_dtype: FLOAT32
+    use_double_precision_for_fft: false
+  fixed_value:
+    default_dtype: FLOAT32
+    use_double_precision_for_fft: false
+  intended_domain:
+    approved_default_dtypes:
+    - FLOAT16
+    - FLOAT32
+    - FLOAT64
+  rationale: Precision strongly affects execution, but changing it alongside shape
+    and batching in four points would confound coefficients. Float32 is the characterized
+    benchmark setting.
+- input_id: data_residency
+  symbol: data_on_device
+  role: sweep
+  sampling_strategy: Use host-streamed data at three points and accelerator-resident
+    data at one repeated high-N point.
+  values:
+  - false
+  - true
+  fixed_value: null
+  intended_domain:
+    values:
+    - false
+    - true
+  rationale: Residency changes setup transfer, repeated epoch transfers, and accelerator
+    memory. The fourth point provides a targeted pilot contrast while holding N, detector
+    size, object size, probe size, E, and B equal to another point.
+algorithm_groups:
+- algorithm_group_id: pie
+  display_name: PIE
+synthetic_input:
+  mode: specification_only
+  seed: 20260818
+  dataset_identity:
+  - n_scan_points
+  - detector_shape
+  - diffraction_storage_dtype
+  - object_shape
+  - probe_shape
+  - forward_propagation_configuration
+  requirements:
+  - component: diffraction_intensity
+    shape: '[N,H_d,W_d]'
+    dtype: dtype_data, fixed to float32 in this pilot
+    distribution: Deterministic finite nonnegative intensities generated from a nonzero
+      synthetic object/probe pair, with a small positive floor to avoid degenerate
+      normalization.
+    metadata: Store wavelength, propagation regime, object pixel size, FFT-shift convention,
+      seed, and generator version in the manifest and HDF5 attributes.
+    semantic_constraints: The leading dimension equals N; detector dimensions do not
+      exceed probe-wavefield dimensions; no NaN or infinity values are permitted.
+  - component: probe
+    shape: '[M_opr,M_probe,H_p,W_p]'
+    dtype: complex64 on disk for this pilot
+    distribution: Deterministic complex Gaussian-like illumination envelope with nonzero
+      power and a bounded phase ramp.
+    metadata: Store object pixel size as required by the runner and record probe normalization.
+    semantic_constraints: M_opr=1 and M_probe=1 at all pilot points; probe power must
+      be nonzero.
+  - component: initial_object
+    shape: '[S,H_o,W_o]'
+    dtype: complex64
+    distribution: Unit-amplitude complex transmission with deterministic smooth amplitude
+      and phase perturbations used to synthesize nondegenerate diffraction.
+    metadata: S=1 and slice spacings are absent.
+    semantic_constraints: Every padded probe patch implied by the generated positions
+      must fit within the object extent.
+  - component: scan_positions
+    shape: '[N,2] ordered as [y,x]'
+    dtype: float32 in object-pixel coordinates, with meter-valued runner fields derived
+      from object pixel size when required
+    distribution: Deterministic approximately uniform raster covering the valid object
+      interior with at least 50 percent nominal adjacent-probe overlap; truncate or
+      repeat an offset raster deterministically to obtain exactly N positions.
+    metadata: Record raster dimensions, step size, overlap estimate, coordinate units,
+      centering convention, and conversion factor.
+    semantic_constraints: Positions are finite and nondegenerate, and all patches
+      including four-pixel shift padding fit the object.
+  - component: opr_weights
+    shape: '[N,1]'
+    dtype: float32
+    distribution: All ones.
+    metadata: May be omitted if the task creates the equivalent default.
+    semantic_constraints: First dimension equals N.
+  - component: reuse_policy
+    shape: null
+    dtype: null
+    distribution: null
+    metadata: Dataset files are content-addressed by the listed dataset_identity inputs
+      plus seed and generator version.
+    semantic_constraints: num_epochs, batch_size, dm_chunk_length, batching_mode,
+      optimized_parameter_groups, forward_model_memory_options, optional_feature_schedule,
+      compute_precision, data_residency, algorithm group, hardware, warmup, and repetition
+      do not create new scientific files. Points p003 and p004 therefore reuse the
+      same paired HDF5 dataset.
+  unresolved_requirements:
+  - The approved characterization does not define a portable scan-overlap domain.
+    The proposed 50 percent nominal overlap and raster construction require human
+    approval.
+  - The generated intensities must be validated against every algorithm group's accepted
+    input conventions before measured execution.
+  - Detector pixel-size wiring for physically consistent near-field generation remains
+    unresolved, but this pilot fixes far-field propagation.
+  - No large synthetic dataset is created by this plan; generation occurs only after
+    explicit plan approval.
+  planned_artifacts:
+  - path: synthetic/pty_chi/p001/{dataset_hash}_dp.h5
+    contents: Diffraction intensity dataset and generation metadata.
+  - path: synthetic/pty_chi/p001/{dataset_hash}_params.h5
+    contents: Probe, scan positions, object pixel-size metadata, and optional OPR
+      weights.
+  - path: synthetic/pty_chi/p002/{dataset_hash}_dp.h5
+    contents: Diffraction intensity dataset and generation metadata.
+  - path: synthetic/pty_chi/p002/{dataset_hash}_params.h5
+    contents: Probe, scan positions, object pixel-size metadata, and optional OPR
+      weights.
+  - path: synthetic/pty_chi/p003/{dataset_hash}_dp.h5
+    contents: Dataset shared by base points p003 and p004.
+  - path: synthetic/pty_chi/p003/{dataset_hash}_params.h5
+    contents: Parameters shared by base points p003 and p004.
+  - path: synthetic/pty_chi/manifest.json
+    contents: Seed, generator version, dataset identities, shapes, dtypes, distributions,
+      metadata, hashes, and point-to-dataset reuse mapping.
+hardware:
+  allowed_catalog:
+  - A100
+  - B200
+  - GH200
+  - H100
+  - H200
+  - INTEL_MAX
+  - MI300A
+  - MI300X
+  targets:
+  - accelerator: GH200
+    notes: Accelerator fixed by config.toml [[machine]].
+measurement:
+  boundary: The characterization covers task construction, dataset preprocessing,
+    iterative reconstruction, major propagation and pixelwise work, diffraction storage
+    reads, accelerator transfers, and optional runner output. Alternative reconstructors
+    are separate model groups sharing the approved candidate-input vector. Exact executed
+    FLOPs for PyTorch FFTs, automatic differentiation, interpolation, optimizers,
+    optional features, and variant-specific analytical updates remain unresolved where
+    source code does not establish a portable arithmetic count.
+  warmup_runs: 0
+  measured_repetitions: 1
+  synchronization:
+  - Synchronize the accelerator immediately before starting the boundary timer.
+  - Start accelerator power sampling before the input HDF5 read and retain timestamps
+    covering the complete boundary.
+  - Synchronize after reconstruction and before result device-to-host handling where
+    required to prevent queued accelerator work from escaping the boundary.
+  - Synchronize after all included accelerator work and stop the end-to-end timer
+    only after the configured NPZ output write completes.
+  - Use monotonic host timestamps and align power samples to the same run start and
+    stop markers.
+  metrics:
+  - metric_id: end_to_end_latency
+    units: seconds
+    required: true
+    collection_method: Monotonic wall-clock duration covering input HDF5 read, preprocessing,
+      task construction, transfers, reconstruction, result device-to-host copies,
+      and enabled NPZ output.
+  - metric_id: accelerator_power
+    units: watts
+    required: true
+    collection_method: Timestamped NVIDIA accelerator-board power samples collected
+      by the validated external monitoring path throughout the exact measurement boundary;
+      report time-weighted mean, minimum, maximum, and sample count.
+  - metric_id: accelerator_energy
+    units: joules
+    required: true
+    collection_method: Trapezoidal integration of timestamped accelerator power over
+      the synchronized end-to-end boundary, with partial endpoint intervals handled
+      using aligned boundary markers.
+  - metric_id: end_to_end_throughput
+    units: pattern_epochs_per_second
+    required: true
+    collection_method: Compute N * E divided by end_to_end_latency. This is an end-to-end
+      processed-pattern-epoch rate, not detector pixels per second.
+  - metric_id: peak_accelerator_memory
+    units: bytes
+    required: true
+    collection_method: Reset PyTorch peak-memory statistics immediately before the
+      boundary, then record maximum allocated and maximum reserved accelerator bytes
+      after final synchronization; also record external device-memory high-water observations
+      when available.
+  power:
+    target: Allocated GH200 accelerator only; exclude host CPU and facility power.
+    sampling_interval_ms: 200
+    clock_alignment_required: true
+  metadata_to_record:
+  - plan_id, point_id, algorithm_group_id, hardware_id, repetition, and warmup status
+  - all approved model-input assignments and their effective runtime values
+  - dataset content hash and paired HDF5 paths
+  - application source revision and generated harness revision
+  - entrypoint or harness invocation and normalized options
+  - PyTorch, CUDA, Python, NumPy, h5py, SciPy, and scikit-learn versions
+  - accelerator name, UUID, driver version, available memory, clocks, and power limits
+  - JLSE node name, Cobalt job identifier, queue, allocation start time, and scheduler-provided
+    device visibility
+  - effective device class cuda and distributed world size 1
+  - random seed 20260818 and nondeterministic algorithms disabled
+  - 'preprocessing controls: center_positions=true, scale_probe=true, fft_shift=true'
+  - 'output control: save=true with a unique NPZ path outside the timed input files'
+  - power-monitor command, vendor, device selection, interval, sample count, and monitor
+    exit status
+  - phase timestamps for input read, preprocessing, task initialization, reconstruction,
+    result transfer, and output write
+  - requested and effective batch size and DM chunk length
+  - LSQML first-epoch probe-intensity-rescaling setting
+  - BH method fixed to GD
+  - warmup outcome, measured-run exit status, stderr path, and validation checks
+matrix_design:
+  strategy: The maximum feasible shared base-point count is floor(100 / (8 algorithm
+    groups * 1 hardware target * 3 measured repetitions)) = 4. Use four deterministic
+    points rather than a Cartesian product. Points p001-p003 span low, interior, and
+    high shape/work levels; p003-p004 form a targeted data-residency contrast while
+    holding the scientific dataset identity constant.
+  base_points:
+  - point_id: p001
+    inputs:
+      n_scan_points: 64
+      detector_shape:
+      - 64
+      - 64
+      diffraction_storage_dtype: float32
+      object_shape:
+      - 1
+      - 128
+      - 128
+      probe_shape:
+      - 1
+      - 1
+      - 64
+      - 64
+      num_epochs: 2
+      batch_size: 1
+      dm_chunk_length: 1
+      batching_mode: RANDOM
+      optimized_parameter_groups:
+        object:
+          optimizable: true
+          start: 0
+          stop: null
+          stride: 1
+        probe:
+          optimizable: true
+          start: 0
+          stop: null
+          stride: 1
+        probe_positions:
+          optimizable: false
+          start: 0
+          stop: null
+          stride: 1
+        opr_mode_weights:
+          optimizable: false
+          start: 0
+          stop: null
+          stride: 1
+        slice_spacings:
+          optimizable: false
+          start: 0
+          stop: null
+          stride: 1
+      forward_propagation_configuration:
+        free_space_propagation_distance_m: infinity
+        wavelength_m: 1.0e-09
+        slice_spacings_m: null
+      forward_model_memory_options:
+        low_memory_mode: false
+        pad_for_shift: 4
+        diffraction_pattern_blur_sigma: null
+      optional_feature_schedule:
+        enabled_features: []
+      compute_precision:
+        default_dtype: FLOAT32
+        use_double_precision_for_fft: false
+      data_residency: false
+    rationale: Low-boundary smoke and measurement point with serial batching and minimal
+      DM chunks.
+  estimated_total_runs: 1
+  matrix_artifact:
+    artifact_type: dry_run_matrix
+    stage: experiment_plan_review
+    version: 2
+    path: artifacts/experiment_plan_review/dry_run_matrix.v002.csv
+    sha256: 75032d4a68f1bb8521a4e5bb52ab3dbd8ac9cebdb02bfb4daa7f724c7b9517fd
+execution:
+  mode: dry_run
+  max_total_runs: 100
+  skip_existing: true
+  allow_rerun: false
+  runner_status: blocked_until_approval
+  run_count_formula: 8 algorithm groups * 4 shared base points * 1 hardware target
+    * 3 measured repetitions = 96 measured runs
+  warmup_accounting: One warmup per algorithm-group/base-point/hardware combination
+    is planned but is not included in the supplied measured-run formula.
+  application_execution_profile:
+    device_class: cuda
+    distributed_world_size: 1
+    determinism_settings:
+      random_seed: 20260818
+      allow_nondeterministic_algorithms: false
+    input_preprocessing_controls:
+      center_positions: true
+      scale_probe: true
+      fft_shift: true
+    output_save_control:
+      save: true
+      path_template: outputs/{plan_id}/{algorithm_group_id}/{point_id}/rep-{repetition}.npz
+    power_monitoring_options:
+      vendor: nvidia
+      interval_seconds: 0.2
+      devices: scheduler-visible allocated accelerator
+  operational_assumptions:
+  - 'Use the validated GH200 environment in gh200_environment.md: module path /soft/modulefiles,
+    cuda/12.9.1, conda/nvidia/suse15.6/2025.01-11, and ptychopinn_torch_arm.'
+  - When pty-chi is not installed, prepend /home/zhong.zheng/pty-chi/src to PYTHONPATH.
+  - Do not force CUDA_VISIBLE_DEVICES=0; preserve Cobalt allocation visibility.
+  - Run import, CUDA-availability, device-name, free-memory, and small tensor-allocation
+    preflights inside the allocated node.
+  - Use Cobalt qsub.py with the gpu_gh200 queue for the eventual reviewed script;
+    no job is submitted in dry-run mode.
+  - The eventual measured application invocation must not pass the application's --dry-run
+    option because that would skip reconstruction.
+  - Use a deterministic reviewed harness around the selected task API or single-run
+    path so every matrix assignment is effective and the complete approved boundary,
+    including output saving, is measured.
+validation:
+  issues:
+  - severity: INFO
+    code: EXTERNAL_APPROVAL_AUTHORITATIVE
+    message: The source characterization is treated as approved according to the authoritative
+      external approval record. Its immutable internal awaiting_human_review field
+      is not reported as a mismatch.
+    related_ids:
+    - pty-chi-input-discovery-2026-08-18
+  - severity: INFO
+    code: RUN_BUDGET_SATURATED
+    message: The maximum feasible base-point count is four, and the proposed 96 measured
+      runs are within the maximum of 100.
+    related_ids:
+    - p001
+    - p002
+    - p003
+    - p004
+  - severity: WARNING
+    code: EFFECTIVE_BATCH_SIZE_HARNESS_REQUIRED
+    message: The characterized benchmark runner forces PIE batch size to one. A reviewed
+      API-compatible harness is required to preserve assigned effective B values for
+      the shared matrix; otherwise p002-p004 would not represent the same input vector
+      for PIE.
+    related_ids:
+    - batch_size
+    - pie
+  - severity: WARNING
+    code: VARIANT_COMMON_PROFILE_REQUIRES_SMOKE_VALIDATION
+    message: The common S=1, M_opr=1, M_probe=1, object-and-probe optimization, far-field,
+      pad-for-shift=4 profile must be smoke-tested for all eight algorithm groups
+      before measured execution.
+    related_ids:
+    - object_shape
+    - probe_shape
+    - optimized_parameter_groups
+    - forward_propagation_configuration
+    - forward_model_memory_options
+  - severity: WARNING
+    code: SCAN_GEOMETRY_ASSUMPTION
+    message: A deterministic raster with at least 50 percent nominal overlap is proposed
+      because the approved input vector excludes exact scan geometry and does not
+      provide an intended overlap domain. Human confirmation is required.
+    related_ids:
+    - synthetic_input
+  - severity: WARNING
+    code: OUTPUT_SCOPE_DECISION
+    message: The plan enables NPZ output so the optional runner-output phases are
+      exercised within the approved end-to-end boundary. Confirm this profile before
+      execution because modeling sweeps normally disable output saving.
+    related_ids:
+    - end_to_end_latency
+    - output_save_control
+  - severity: WARNING
+    code: LSQML_FIRST_EPOCH_UNRESOLVED
+    message: The effective LSQML first-epoch probe-intensity-rescaling behavior must
+      be fixed and recorded because it changes which epochs perform reconstruction
+      updates.
+    related_ids:
+    - lsqml
+    - num_epochs
+  - severity: WARNING
+    code: POWER_INTERVAL_FOR_SHORT_RUNS
+    message: A 200 ms monitoring interval may yield too few samples for the smallest
+      point. Dry-run validation must require adequate sample count or request a reviewed
+      shorter interval without changing the accelerator-only power boundary.
+    related_ids:
+    - p001
+    - accelerator_power
+    - accelerator_energy
+  - severity: INFO
+    code: DATASET_REUSE
+    message: Base points p003 and p004 differ only in execution inputs that do not
+      change scientific file contents and therefore must reuse the same generated
+      paired HDF5 dataset.
+    related_ids:
+    - p003
+    - p004
+    - data_residency
+    - dm_chunk_length
+  - severity: INFO
+    code: RUN_COUNT_WITHIN_LIMIT
+    message: The deterministic matrix has 96 measured runs, within the configured
+      limit of 100.
+    related_ids:
+    - p002
+    - p001
+    - p003
+    - p004
+  - severity: WARNING
+    code: SMOKE_RUN_ONLY
+    message: This one-run-per-accelerator plan validates execution only and cannot
+      fit the downstream resource model.
+    related_ids:
+    - pie
+    - p001
+approval:
+  status: awaiting_human_review
+  requested_decisions:
+  - Approve the four shared base points and the 96-measured-run count.
+  - Approve use of a reviewed API-compatible harness so PIE can honor the assigned
+    effective batch sizes rather than the benchmark runner's B=1 override.
+  - 'Confirm the common cross-group profile: S=1, M_opr=1, M_probe=1, object and probe
+    optimization enabled, far-field propagation, optional features disabled, float32
+    compute, and pad_for_shift=4.'
+  - Confirm that NPZ output saving is enabled and included in every end-to-end measurement.
+  - Approve the deterministic raster geometry assumption with at least 50 percent
+    nominal overlap.
+  - Confirm the LSQML first-epoch probe-intensity-rescaling setting.
+  - Confirm BH uses the benchmark runner's GD method.
+  - Confirm one warmup per algorithm-group/base-point/hardware combination and that
+    warmups are excluded from the supplied measured-run formula.
+  - Approve the 200 ms GH200 power-sampling interval or select a shorter validated
+    interval for the smallest runs.
+  - Approve synthetic generation after review, including reuse of the p003 dataset
+    for p004.
+  reviewer: null
+  reviewed_at: null
+  notes: Smoke run only; insufficient samples for resource-model fitting.

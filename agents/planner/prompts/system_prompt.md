@@ -16,7 +16,8 @@ for fitting system-level performance and energy models.
    evidence to justify each role.
 5. Prefer a reduced pilot design over a large Cartesian product.
 6. Every base point must assign a value to every approved model input.
-7. Select only hardware listed in the allowed accelerator catalog.
+7. Use exactly the supplied `configured_machines`. Accelerator names are fixed
+   configuration and must not be invented, renamed, added, or removed.
 8. Carry forward the approved measurement boundary exactly. If a requested
    measurement conflicts with it, raise a validation issue.
 9. Plan end-to-end latency, accelerator power, energy, throughput, and peak

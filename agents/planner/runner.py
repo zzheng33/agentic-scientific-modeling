@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import copy
 import io
 import json
 import tomllib
@@ -40,7 +41,7 @@ class PlannerConfig:
     output_path: Path
     max_tool_rounds: int
     max_total_runs: int
-    default_hardware: tuple[str, ...]
+    machine_accelerators: tuple[str, ...]
     repetitions: int
     operational_rag_enabled: bool = False
     operational_rag_corpus_path: Path | None = None
@@ -66,6 +67,7 @@ class PlannerConfig:
         openai_config = document.get("openai", {})
         application_config = document.get("application", {})
         planner_config = document.get("planner", {})
+        machine_config = document.get("machine", [])
         rag_config = planner_config.get("rag", {})
 
         api_key = str(openai_config.get("api_key", "")).strip()
@@ -93,7 +95,13 @@ class PlannerConfig:
         max_tool_rounds = int(planner_config.get("max_tool_rounds", 40))
         max_total_runs = int(planner_config.get("max_total_runs", 100))
         repetitions = int(planner_config.get("repetitions", 3))
-        default_hardware = tuple(str(item) for item in planner_config.get("default_hardware", ["A100"]))
+        if not isinstance(machine_config, list) or not machine_config:
+            raise ValueError("Configure at least one [[machine]] table in config.toml")
+        machine_accelerators = tuple(
+            str(item.get("accelerator", "")).strip()
+            for item in machine_config
+            if isinstance(item, dict)
+        )
         operational_rag_enabled = bool(rag_config.get("enabled", False))
         operational_rag_corpus_path = (
             resolve_path(rag_config.get("corpus_path"))
@@ -114,9 +122,17 @@ class PlannerConfig:
 
         if max_tool_rounds < 1 or max_total_runs < 1 or repetitions < 1:
             raise ValueError("Planner round, run, and repetition limits must be positive")
-        unknown_hardware = sorted(set(default_hardware) - ALLOWED_HARDWARE)
-        if unknown_hardware:
-            raise ValueError(f"Unsupported planner.default_hardware: {', '.join(unknown_hardware)}")
+        if len(machine_accelerators) != len(machine_config) or any(
+            not accelerator for accelerator in machine_accelerators
+        ):
+            raise ValueError("Every [[machine]] table requires accelerator")
+        if len(machine_accelerators) != len(set(machine_accelerators)):
+            raise ValueError("[[machine]].accelerator values must be unique")
+        unsupported_machines = sorted(set(machine_accelerators) - ALLOWED_HARDWARE)
+        if unsupported_machines:
+            raise ValueError(
+                "Unsupported [[machine]] accelerators: " + ", ".join(unsupported_machines)
+            )
         if operational_rag_enabled and operational_rag_corpus_path is None:
             raise ValueError("planner.rag.corpus_path is required when RAG is enabled")
         if operational_rag_enabled and operational_rag_index_path is None:
@@ -138,7 +154,7 @@ class PlannerConfig:
             output_path=output_path,
             max_tool_rounds=max_tool_rounds,
             max_total_runs=max_total_runs,
-            default_hardware=default_hardware,
+            machine_accelerators=machine_accelerators,
             repetitions=repetitions,
             operational_rag_enabled=operational_rag_enabled,
             operational_rag_corpus_path=operational_rag_corpus_path,
@@ -148,6 +164,83 @@ class PlannerConfig:
             operational_rag_parent_context_chars=operational_rag_parent_context_chars,
             operational_rag_settings=operational_rag_settings,
         )
+
+
+def apply_configured_machines(plan: dict[str, Any], config: PlannerConfig) -> None:
+    """Replace LLM-proposed targets with accelerator-keyed machine configuration."""
+    hardware = plan.setdefault("hardware", {})
+    hardware["allowed_catalog"] = sorted(ALLOWED_HARDWARE)
+    hardware["targets"] = [
+        {
+            "accelerator": accelerator,
+            "notes": "Accelerator fixed by config.toml [[machine]].",
+        }
+        for accelerator in config.machine_accelerators
+    ]
+
+
+def build_smoke_plan(
+    approved_plan: dict[str, Any],
+    config: PlannerConfig,
+    *,
+    algorithm_group_id: str,
+    point_id: str,
+) -> dict[str, Any]:
+    """Create a one-point, one-algorithm, one-repetition review draft."""
+    plan = copy.deepcopy(approved_plan)
+    groups = [
+        item
+        for item in plan.get("algorithm_groups", [])
+        if item.get("algorithm_group_id") == algorithm_group_id
+    ]
+    if not groups:
+        raise ValueError(f"Unknown smoke algorithm group: {algorithm_group_id}")
+    points = [
+        item
+        for item in plan.get("matrix_design", {}).get("base_points", [])
+        if item.get("point_id") == point_id
+    ]
+    if not points:
+        raise ValueError(f"Unknown smoke base point: {point_id}")
+
+    plan["algorithm_groups"] = groups
+    plan["matrix_design"]["base_points"] = points
+    plan["matrix_design"]["estimated_total_runs"] = len(config.machine_accelerators)
+    plan["matrix_design"].pop("matrix_artifact", None)
+    plan["measurement"]["warmup_runs"] = 0
+    plan["measurement"]["measured_repetitions"] = 1
+    plan["plan"]["status"] = "awaiting_human_review"
+    plan["plan"]["summary"] = (
+        f"Smoke-only plan: {algorithm_group_id}, {point_id}, one repetition per accelerator."
+    )
+    plan["approval"] = {
+        **plan.get("approval", {}),
+        "status": "awaiting_human_review",
+        "reviewer": None,
+        "reviewed_at": None,
+        "notes": "Smoke run only; insufficient samples for resource-model fitting.",
+    }
+    plan["execution"].update(
+        {
+            "mode": "dry_run",
+            "runner_status": "blocked_until_approval",
+        }
+    )
+    issues = plan.setdefault("validation", {}).setdefault("issues", [])
+    issues[:] = [issue for issue in issues if issue.get("code") != "SMOKE_RUN_ONLY"]
+    issues.append(
+        {
+            "severity": "WARNING",
+            "code": "SMOKE_RUN_ONLY",
+            "message": (
+                "This one-run-per-accelerator plan validates execution only and cannot "
+                "fit the downstream resource model."
+            ),
+            "related_ids": [algorithm_group_id, point_id],
+        }
+    )
+    apply_configured_machines(plan, config)
+    return plan
 
 
 class PlanningAgent:
@@ -189,7 +282,8 @@ class PlanningAgent:
             "INTEL_MAX": "Intel Aurora XPU",
         }
         selected_hardware = " ".join(
-            hardware_terms.get(item, item) for item in self.config.default_hardware
+            hardware_terms.get(accelerator, accelerator)
+            for accelerator in self.config.machine_accelerators
         )
         query = (
             "JLSE qsub module environment Python benchmark PtyChi power monitoring "
@@ -223,7 +317,10 @@ class PlanningAgent:
         )
         request = {
             "planning_defaults": {
-                "default_hardware": list(self.config.default_hardware),
+                "configured_machines": [
+                    {"accelerator": accelerator}
+                    for accelerator in self.config.machine_accelerators
+                ],
                 "measured_repetitions": self.config.repetitions,
                 "max_total_runs": self.config.max_total_runs,
                 "execution_mode": "dry_run",
@@ -414,6 +511,7 @@ class PlanningAgent:
             }
         )
         plan["measurement"]["measured_repetitions"] = self.config.repetitions
+        apply_configured_machines(plan, self.config)
 
         model_inputs = [
             item for item in characterization.get("candidate_inputs", []) if item.get("model_input")
@@ -431,14 +529,13 @@ class PlanningAgent:
                 raise ValueError(f"Invalid role for {variable.get('input_id')}: {variable.get('role')}")
 
         targets = plan.get("hardware", {}).get("targets", [])
-        hardware_ids = [str(target.get("hardware_id", "")).strip() for target in targets]
-        if not hardware_ids:
-            raise ValueError("Experiment plan must contain at least one hardware target")
-        if any(not hardware_id for hardware_id in hardware_ids):
-            raise ValueError("Every hardware target must have a non-empty hardware_id")
-        if len(hardware_ids) != len(set(hardware_ids)):
-            raise ValueError("Hardware target IDs must be unique")
         accelerators = [str(target.get("accelerator", "")).strip() for target in targets]
+        if not accelerators:
+            raise ValueError("Experiment plan must contain at least one hardware target")
+        if any(not accelerator for accelerator in accelerators):
+            raise ValueError("Every hardware target must have a non-empty accelerator")
+        if len(accelerators) != len(set(accelerators)):
+            raise ValueError("Hardware target accelerators must be unique")
         unknown_accelerators = sorted(set(accelerators) - ALLOWED_HARDWARE)
         if unknown_accelerators:
             raise ValueError(
@@ -461,7 +558,7 @@ class PlanningAgent:
         total_runs = (
             len(algorithm_groups)
             * len(base_points)
-            * len(hardware_ids)
+            * len(accelerators)
             * self.config.repetitions
         )
         plan["matrix_design"]["estimated_total_runs"] = total_runs
@@ -557,7 +654,7 @@ def render_matrix_csv(plan: dict[str, Any]) -> str:
         "run_id",
         "algorithm_group_id",
         "point_id",
-        "hardware_id",
+        "accelerator",
         "repetition",
         *variables,
     ]
@@ -575,7 +672,7 @@ def render_matrix_csv(plan: dict[str, Any]) -> str:
                             "run_id": f"run-{run_number:05d}",
                             "algorithm_group_id": group["algorithm_group_id"],
                             "point_id": point["point_id"],
-                            "hardware_id": target["hardware_id"],
+                            "accelerator": target["accelerator"],
                             "repetition": repetition,
                             **point["inputs"],
                         }

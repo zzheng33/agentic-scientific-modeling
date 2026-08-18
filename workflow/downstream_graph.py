@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,101 @@ def benchmark_entry(_state: WorkflowState) -> dict[str, Any]:
     }
 
 
+def _planned_machine_aliases(plan: dict[str, Any]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for target in plan.get("hardware", {}).get("targets", []):
+        accelerator = str(target.get("accelerator", "")).strip()
+        if not accelerator or accelerator in aliases:
+            raise ValueError("Plan hardware targets require unique accelerator values")
+        aliases[accelerator] = str(target.get("hardware_id") or accelerator).strip()
+    if not aliases:
+        raise ValueError("Plan does not contain hardware targets")
+    return aliases
+
+
+def _filter_matrix_for_machine(
+    matrix_path: Path,
+    accelerator: str,
+    hardware_alias: str,
+) -> str:
+    normalized = _normalize_matrix_accelerators(
+        matrix_path,
+        {accelerator: hardware_alias},
+        allow_other_aliases=True,
+    )
+    reader = csv.DictReader(io.StringIO(normalized))
+    fieldnames = list(reader.fieldnames or [])
+    rows = [row for row in reader if row.get("accelerator") == accelerator]
+    if not rows:
+        raise ValueError(f"Experiment matrix has no runs for {accelerator}")
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def _normalize_matrix_accelerators(
+    matrix_path: Path,
+    aliases: dict[str, str],
+    *,
+    allow_other_aliases: bool = False,
+) -> str:
+    with matrix_path.open(newline="", encoding="utf-8") as stream:
+        reader = csv.DictReader(stream)
+        source_fields = list(reader.fieldnames or [])
+        if "accelerator" in source_fields:
+            source_key = "accelerator"
+        elif "hardware_id" in source_fields:
+            source_key = "hardware_id"
+        else:
+            raise ValueError("Experiment matrix is missing accelerator")
+        fieldnames = [
+            "accelerator" if field == source_key else field
+            for field in source_fields
+        ]
+        alias_to_accelerator = {alias: name for name, alias in aliases.items()}
+        rows = []
+        for source in reader:
+            raw = str(source.get(source_key, ""))
+            resolved = raw if source_key == "accelerator" else alias_to_accelerator.get(raw)
+            if resolved is None:
+                if allow_other_aliases:
+                    continue
+                raise ValueError(f"Experiment matrix contains unknown hardware alias {raw}")
+            row = {
+                ("accelerator" if key == source_key else key): value
+                for key, value in source.items()
+            }
+            row["accelerator"] = resolved
+            rows.append(row)
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
+def _combine_measurement_csv(documents: list[str]) -> str:
+    fieldnames: list[str] | None = None
+    rows: list[dict[str, str]] = []
+    for document in documents:
+        reader = csv.DictReader(io.StringIO(document))
+        current = list(reader.fieldnames or [])
+        if fieldnames is None:
+            fieldnames = current
+        elif current != fieldnames:
+            raise ValueError("Machine measurement CSV headers do not match")
+        rows.extend(reader)
+    if not fieldnames:
+        raise ValueError("Remote execution returned no measurement CSV header")
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue()
+
+
 def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
     store = _store(state)
     plan_ref = _ref(state, "approved_experiment_plan_ref")
@@ -63,16 +159,14 @@ def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
     plan = store.read_artifact(plan_ref)
     characterization = store.read_artifact(_ref(state, "approved_characterization_ref"))
     matrix_path = store.verify_artifact(matrix_ref)
-    matrix_csv = matrix_path.read_text(encoding="utf-8")
-    remote = RemoteExecutorConfig.from_file(state.get("config_path"))
-    planned_hardware = {
-        str(item.get("hardware_id", ""))
-        for item in plan.get("hardware", {}).get("targets", [])
-    }
-    if planned_hardware != {remote.hardware_id}:
+    remotes = RemoteExecutorConfig.all_from_file(state.get("config_path"))
+    aliases = _planned_machine_aliases(plan)
+    matrix_csv = _normalize_matrix_accelerators(matrix_path, aliases)
+    configured_accelerators = {item.accelerator for item in remotes}
+    if set(aliases) != configured_accelerators:
         raise ValueError(
-            "Remote script generation requires exactly the configured hardware profile "
-            f"{remote.hardware_id}; plan contains {sorted(planned_hardware)}"
+            "Plan accelerators must exactly match configured [[machine]] profiles; "
+            f"configured {sorted(configured_accelerators)}, plan {sorted(aliases)}"
         )
     generated = ExecutionScriptAgent(
         PlannerConfig.from_file(state.get("config_path"))
@@ -81,10 +175,13 @@ def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
         characterization,
         plan,
         matrix_csv,
-        remote.platform_profile(),
+        {"machines": [item.platform_profile() for item in remotes]},
         revision_feedback=state.get("benchmark_feedback") or "",
     )
-    version = int(state.get("benchmark_revision", 0)) + 1
+    version = store.next_artifact_version(
+        BENCHMARK_STAGE,
+        minimum=int(state.get("benchmark_revision", 0)) + 1,
+    )
     dataset_script_ref = store.write_text_artifact(
         stage=BENCHMARK_STAGE,
         artifact_type="dataset_generation_script",
@@ -110,7 +207,7 @@ def prepare_benchmark(state: WorkflowState) -> dict[str, Any]:
         "experiment_matrix": matrix_ref.model_dump(mode="json"),
         "application_path": state["application_path"],
         "application_revision": state.get("source_revision"),
-        "platform_profile": remote.platform_profile(),
+        "platform_profiles": [item.platform_profile() for item in remotes],
         "scripts": {
             "dataset_generation": dataset_script_ref.model_dump(mode="json"),
             "benchmark_job": benchmark_script_ref.model_dump(mode="json"),
@@ -254,21 +351,56 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
         raise ValueError("Approved benchmark manifest contains invalid script references")
     dataset_script_path = store.verify_artifact(dataset_script_ref)
     benchmark_script_path = store.verify_artifact(benchmark_script_ref)
-    plan_path = store.verify_artifact(_ref(state, "approved_experiment_plan_ref"))
+    plan_ref = _ref(state, "approved_experiment_plan_ref")
+    plan_path = store.verify_artifact(plan_ref)
+    plan = store.read_artifact(plan_ref)
     matrix_path = store.verify_artifact(_ref(state, "experiment_matrix_ref"))
     version = int(state["benchmark_revision"])
-    configuration = RemoteExecutorConfig.from_file(state.get("config_path"))
-    measurements_csv, summary = execute_remote_benchmark(
-        dataset_script_path,
-        benchmark_script_path,
-        plan_path,
-        matrix_path,
-        state["application_path"],
-        state["run_dir"],
-        state["workflow_id"],
-        version,
-        configuration,
-    )
+    configurations = RemoteExecutorConfig.all_from_file(state.get("config_path"))
+    aliases = _planned_machine_aliases(plan)
+    measurement_documents: list[str] = []
+    execution_summaries: list[dict[str, Any]] = []
+    for configuration in configurations:
+        if configuration.accelerator not in aliases:
+            raise ValueError(
+                f"Approved plan does not target configured accelerator {configuration.accelerator}"
+            )
+        machine_matrix = store.write_text_artifact(
+            stage="benchmark_execution",
+            artifact_type=f"experiment_matrix_{configuration.accelerator.lower()}",
+            version=version,
+            extension="csv",
+            content=_filter_matrix_for_machine(
+                matrix_path,
+                configuration.accelerator,
+                aliases[configuration.accelerator],
+            ),
+        )
+        machine_measurements, machine_summary = execute_remote_benchmark(
+            dataset_script_path,
+            benchmark_script_path,
+            plan_path,
+            store.verify_artifact(machine_matrix),
+            state["application_path"],
+            state["run_dir"],
+            state["workflow_id"],
+            version,
+            configuration,
+        )
+        machine_summary["matrix_artifact"] = machine_matrix.model_dump(mode="json")
+        measurement_documents.append(machine_measurements)
+        execution_summaries.append(machine_summary)
+    measurements_csv = _combine_measurement_csv(measurement_documents)
+    summary = {
+        "schema_version": "0.2",
+        "status": (
+            "completed"
+            if all(item.get("status") == "completed" for item in execution_summaries)
+            else "completed_with_failures"
+        ),
+        "execution_backend": "ssh_scp_cobalt_multi_machine",
+        "executions": execution_summaries,
+    }
     measurements_ref = store.write_text_artifact(
         stage="benchmark_execution",
         artifact_type="raw_measurements",

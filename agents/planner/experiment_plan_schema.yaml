@@ -78,9 +78,7 @@ hardware:
   targets:
     type: list
     item_fields:
-      hardware_id: string
       accelerator: string
-      vendor: string
       notes: string_or_null
 
 measurement:

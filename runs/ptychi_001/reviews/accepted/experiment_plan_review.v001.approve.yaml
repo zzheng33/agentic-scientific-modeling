@@ -1,0 +1,28 @@
+review:
+  workflow_id: ptychi_001
+  stage: experiment_plan_review
+  status: completed
+  decision: approve
+  artifact:
+    artifact_type: experiment_plan
+    stage: experiment_plan_review
+    version: 1
+    path: artifacts/experiment_plan_review/experiment_plan.v001.yaml
+    sha256: 0772740999ce788818cdb91dc6e3c01ee31916c0dccced82b8240407b53e005b
+  edited_artifact: null
+  feedback: null
+  reviewer: zz
+  reviewed_at: null
+  accepted_at: '2026-08-18T18:26:07.370473Z'
+  provenance:
+    source_revision: 34db7f3226927c23385d7b816bc213eba02b3c60
+    generated_at: '2026-08-18T18:25:34.880207Z'
+    agent_version: planning-graph-0.1
+    prompt_version: experiment-planning-0.2
+    tool_version: codebase-tools-0.1
+approved_artifact:
+  artifact_type: experiment_plan
+  stage: experiment_plan_review
+  version: 1
+  path: artifacts/experiment_plan_review/experiment_plan.v001.yaml
+  sha256: 0772740999ce788818cdb91dc6e3c01ee31916c0dccced82b8240407b53e005b

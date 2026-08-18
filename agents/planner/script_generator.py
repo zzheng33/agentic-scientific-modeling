@@ -16,7 +16,7 @@ from .runner import PlannerConfig
 
 MEASUREMENT_HEADER = (
     "run_id,status,return_code,started_at,finished_at,wall_duration_s,command_sha256,"
-    "algorithm_group_id,point_id,hardware_id,repetition,scan_point_count,"
+    "algorithm_group_id,point_id,accelerator,repetition,scan_point_count,"
     "detector_height,detector_width,num_epochs,batch_size,dataset_id,io_load_time_s,"
     "setup_time_s,task_setup_time_s,reconstruction_run_time_s,save_time_s,total_time_s,"
     "power_trace_path,log_path"
@@ -38,14 +38,20 @@ _BANNED = (
 )
 
 
+def _references_shell_variable(script: str, name: str) -> bool:
+    return re.search(rf"\$(?:{re.escape(name)}\b|\{{{re.escape(name)}\}})", script) is not None
+
+
 def validate_generated_script(script: str, *, kind: str) -> None:
     if not script.startswith("#!/"):
         raise ValueError(f"Generated {kind} script must start with a shebang")
     if "set -euo pipefail" not in script:
         raise ValueError(f"Generated {kind} script must use set -euo pipefail")
-    if "$BUNDLE_ROOT" not in script or "$APPLICATION_ROOT" not in script:
-        raise ValueError(f"Generated {kind} script must use controlled bundle/application paths")
-    if "$PYTHON_BIN" not in script:
+    if not _references_shell_variable(script, "BUNDLE_ROOT"):
+        raise ValueError(f"Generated {kind} script must use the controlled bundle path")
+    if kind == "benchmark" and not _references_shell_variable(script, "APPLICATION_ROOT"):
+        raise ValueError("Generated benchmark script must use the controlled application path")
+    if not _references_shell_variable(script, "PYTHON_BIN"):
         raise ValueError(f"Generated {kind} script must use the controlled Python executable")
     if len(script) > 100_000:
         raise ValueError(f"Generated {kind} script exceeds 100000 characters")
@@ -55,8 +61,13 @@ def validate_generated_script(script: str, *, kind: str) -> None:
     if kind == "dataset_generation" and "dataset_manifest.json" not in script:
         raise ValueError("Dataset script must write dataset_manifest.json")
     if kind == "benchmark":
+        if "dataset_generation.sh" in script:
+            raise ValueError(
+                "Benchmark script must consume the pre-generated dataset, not invoke "
+                "dataset_generation.sh"
+            )
         for required in (
-            "dataset_generation.sh",
+            "dataset_manifest.json",
             "measurements.csv",
             "completion_manifest.json",
             "power.csv",
@@ -114,7 +125,7 @@ class ExecutionScriptAgent:
     ) -> dict[str, Any]:
         codebase = CodebaseTools(application_path)
         hardware = " ".join(
-            str(item.get("hardware_id", ""))
+            str(item.get("accelerator", ""))
             for item in plan.get("hardware", {}).get("targets", [])
         )
         rag_context = ""
@@ -129,7 +140,7 @@ class ExecutionScriptAgent:
             "approved_characterization": characterization,
             "approved_experiment_plan": plan,
             "experiment_matrix_csv": matrix_csv,
-            "fixed_platform_profile": platform_profile,
+            "fixed_platform_profiles": platform_profile.get("machines", []),
             "revision_feedback": revision_feedback or None,
             "required_measurement_header": MEASUREMENT_HEADER,
             "retrieved_jlse_operational_context": rag_context or None,
@@ -149,6 +160,7 @@ class ExecutionScriptAgent:
             }
             for schema in codebase.schemas
         ]
+        last_validation_error: str | None = None
         for _round in range(self.config.max_tool_rounds + 1):
             response = self.client.chat.completions.create(
                 model=self.config.model, messages=messages, tools=tools
@@ -156,11 +168,29 @@ class ExecutionScriptAgent:
             message = response.choices[0].message
             messages.append(message.model_dump(exclude_none=True))
             if not message.tool_calls:
-                result = self._parse(message.content or "")
-                validate_generated_script(
-                    result["dataset_generation_script"], kind="dataset_generation"
-                )
-                validate_generated_script(result["benchmark_job_script"], kind="benchmark")
+                try:
+                    result = self._parse(message.content or "")
+                    validate_generated_script(
+                        result["dataset_generation_script"], kind="dataset_generation"
+                    )
+                    validate_generated_script(
+                        result["benchmark_job_script"], kind="benchmark"
+                    )
+                except ValueError as exc:
+                    last_validation_error = str(exc)
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "The generated scripts failed deterministic local validation: "
+                                f"{last_validation_error}\n\n"
+                                "Return a complete corrected JSON object containing both scripts. "
+                                "Preserve the approved experiment contract and fix the reported "
+                                "validation error. Do not return a patch or explanation."
+                            ),
+                        }
+                    )
+                    continue
                 return result
             for call in message.tool_calls:
                 try:
@@ -179,7 +209,14 @@ class ExecutionScriptAgent:
                         "content": json.dumps(output, ensure_ascii=False),
                     }
                 )
-        raise RuntimeError("Execution script agent exceeded its tool-round limit")
+        detail = (
+            f" Last validation error: {last_validation_error}"
+            if last_validation_error
+            else ""
+        )
+        raise RuntimeError(
+            f"Execution script agent exceeded its tool-round limit.{detail}"
+        )
 
     @staticmethod
     def _parse(text: str) -> dict[str, Any]:

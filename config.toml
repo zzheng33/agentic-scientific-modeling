@@ -2,10 +2,10 @@
 api_key = "zhong.zheng"
 base_url = "https://apps.inside.anl.gov/argoapi/v1"
 model = "GPT-5.6 Sol"
-reasoning_effort = "high"
+reasoning_effort = "medium"
 
 [agent]
-max_tool_rounds = 40
+max_tool_rounds = 10
 
 [characterization.rag]
 # Local ptychography papers used as supporting evidence during characterization.
@@ -54,18 +54,32 @@ id = "ptychi_001"
 # Absolute path, or a path relative to this config file.
 path = "../pty-chi/"
 
+[[machine]]
+# Accelerator is the machine identity. Repeat this table for each JLSE target.
+accelerator = "GH200"
+queue = "gpu_gh200"
+nodes = 1
+walltime_minutes = 30
+module_path = "/soft/modulefiles"
+modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
+conda_env = "ptychopinn_torch_arm"
+remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
+device = "cuda"
+power_vendor = "nvidia"
+devices = "0"
+power_interval_s = 0.2
+
 [planner]
 characterization_path = "agents/characterization/output/application_characterization.yaml"
 output_path = "agents/planner/output"
 max_tool_rounds = 40
 max_total_runs = 100
-default_hardware = ["GH200"]
 repetitions = 3
 
 [planner.rag]
 # JLSE scripts and validated runbooks used as operational planning evidence.
 # This index is independent from the characterization paper index.
-enabled = true
+enabled = false
 corpus_path = "knowledge/jlse/runbooks"
 index_path = "knowledge/jlse/index"
 embedding_model = "BAAI/bge-m3"
@@ -96,32 +110,22 @@ same_parent_penalty = 0.12
 max_children_per_paper = 3
 
 [remote_executor]
-# Authentication stays interactive in the invoking terminal; no password or
-# one-time code is stored in this file.
 enabled = true
 host = "zhong.zheng@login.jlse.anl.gov"
+# Console responses used only while opening the reusable SSH control master.
+# ssh_password is stored as plaintext in this file; keep the file private.
+ssh_password = "9900"
+ssh_duo_choice = "1"
 remote_runs_root = "/home/zhong.zheng/agentic-runs"
 # Used only when upload_application=false. By default the reviewed local source
 # is packaged with the two approved scripts.
 remote_application_path = "/home/zhong.zheng/pty-chi"
 upload_application = true
-hardware_id = "GH200"
-queue = "gpu_gh200"
-nodes = 1
-walltime_minutes = 30
 poll_interval_s = 15
 poll_timeout_s = 3600
 qsub_command = "qsub"
 qstat_command = "qstat"
-module_path = "/soft/modulefiles"
-modules = ["cuda/12.9.1", "conda/nvidia/suse15.6/2025.01-11"]
-conda_env = "ptychopinn_torch_arm"
-remote_monitor_script = "/home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py"
-device = "cuda"
-vendor = "nvidia"
-devices = "0"
-power_interval_s = 0.2
 continue_on_error = true
 
 [systemflow]
-path = "/home/zzhong/systemflow"
+path = "../systemflow"

@@ -1,0 +1,22 @@
+review:
+  workflow_id: ptychi_001
+  stage: candidate_inputs_review
+  status: completed
+  decision: approve
+  artifact:
+    artifact_type: candidate_inputs
+    stage: candidate_inputs_review
+    version: 1
+    path: artifacts/candidate_inputs_review/candidate_inputs.v001.yaml
+    sha256: e0d618b3759578c9f58d4063cefba79f0708ac6c80c391e901e056e97309fe51
+  edited_artifact: null
+  feedback: null
+  reviewer: zz
+  reviewed_at: null
+  accepted_at: null
+  provenance:
+    source_revision: 34db7f3226927c23385d7b816bc213eba02b3c60
+    generated_at: '2026-08-18T18:15:14.886587Z'
+    agent_version: characterization-graph-0.1
+    prompt_version: input-discovery-0.1
+    tool_version: codebase-tools-0.1

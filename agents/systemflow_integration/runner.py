@@ -194,13 +194,7 @@ def prepare_systemflow_model(
 ) -> dict[str, Any]:
     document = copy.deepcopy(approved_model)
     document["status"] = "approved_model_mapped_for_systemflow"
-    aliases: dict[str, dict[str, str]] = {}
-    if "hardware_id" in document.get("grouping", []):
-        aliases["hardware_id"] = {
-            str(target["accelerator"]): str(target["hardware_id"])
-            for target in experiment_plan.get("hardware", {}).get("targets", [])
-        }
-    document["group_aliases"] = aliases
+    document["group_aliases"] = {}
     document["systemflow_contract"] = {
         "loader": "systemflow.application_models.WorkflowApplicationResourceModel",
         "mutation": "systemflow.application_models.ScientificApplicationModel",

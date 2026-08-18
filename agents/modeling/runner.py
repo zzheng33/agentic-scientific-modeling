@@ -14,7 +14,7 @@ import numpy as np
 
 
 EXTRACTED_FIELDS = [
-    "run_id", "usable", "issues", "algorithm_group_id", "hardware_id", "point_id",
+    "run_id", "usable", "issues", "algorithm_group_id", "accelerator", "point_id",
     "repetition", "scan_point_count", "detector_height", "detector_width",
     "num_epochs", "batch_size", "total_time_s", "io_load_time_s",
     "reconstruction_run_time_s", "avg_power_w", "peak_power_w", "energy_j", "peak_memory_mib",
@@ -108,7 +108,7 @@ def extract_measurements(
                 "usable": "true" if not issues else "false",
                 "issues": ";".join(issues),
                 **{key: row.get(key, "") for key in (
-                    "algorithm_group_id", "hardware_id", "point_id", "repetition",
+                    "algorithm_group_id", "accelerator", "point_id", "repetition",
                     "scan_point_count", "detector_height", "detector_width",
                     "num_epochs", "batch_size", "total_time_s", "io_load_time_s",
                     "reconstruction_run_time_s", "log_path", "power_trace_path",
@@ -124,7 +124,7 @@ def extract_measurements(
 
     by_group: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in extracted:
-        by_group[(row["algorithm_group_id"], row["hardware_id"], row["point_id"])].append(row)
+        by_group[(row["algorithm_group_id"], row["accelerator"], row["point_id"])].append(row)
     suspicious: set[str] = set()
     for group in by_group.values():
         values = [(row, _float(row["total_time_s"])) for row in group]
@@ -220,16 +220,16 @@ def fit_resource_model(
         rows = [row for row in csv.DictReader(stream) if decisions.get(row["run_id"]) == "include"]
     grouped: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
     for row in rows:
-        grouped[(row["hardware_id"], row["algorithm_group_id"])].append(row)
+        grouped[(row["accelerator"], row["algorithm_group_id"])].append(row)
     if not grouped:
         raise ValueError("No human-approved measurements are available for model fitting")
 
     coefficient_rows: list[dict[str, Any]] = []
     groups: list[dict[str, Any]] = []
-    for (hardware_id, algorithm), samples in sorted(grouped.items()):
+    for (accelerator, algorithm), samples in sorted(grouped.items()):
         if len(samples) < len(FEATURES):
             raise ValueError(
-                f"Need at least {len(FEATURES)} included runs for {hardware_id}/{algorithm}; "
+                f"Need at least {len(FEATURES)} included runs for {accelerator}/{algorithm}; "
                 f"found {len(samples)}"
             )
         x = np.asarray(
@@ -248,7 +248,7 @@ def fit_resource_model(
         target_models: dict[str, Any] = {}
         for target, y in targets.items():
             if not np.isfinite(y).all() or np.any(y <= 0):
-                raise ValueError(f"Invalid {target} values for {hardware_id}/{algorithm}")
+                raise ValueError(f"Invalid {target} values for {accelerator}/{algorithm}")
             packed, r2, rmse = _ridge_fit(x, y)
             count = len(FEATURES) - 1
             model = {
@@ -273,7 +273,7 @@ def fit_resource_model(
             for feature in FEATURES:
                 coefficient_rows.append(
                     {
-                        "hardware_id": hardware_id,
+                        "accelerator": accelerator,
                         "algorithm": algorithm,
                         "target": target,
                         "feature": feature,
@@ -285,7 +285,7 @@ def fit_resource_model(
                         "n": len(samples),
                     }
                 )
-        groups.append({"hardware_id": hardware_id, "algorithm": algorithm, "targets": target_models})
+        groups.append({"accelerator": accelerator, "algorithm": algorithm, "targets": target_models})
 
     domain = {
         "scan_point_count": [min(int(row["scan_point_count"]) for row in rows), max(int(row["scan_point_count"]) for row in rows)],
@@ -298,7 +298,7 @@ def fit_resource_model(
         "schema_version": "systemflow-application-resource-model-0.1",
         "status": "awaiting_human_review",
         "model_inputs": ["scan_point_count", "detector_shape", "num_epochs", "batch_size"],
-        "grouping": ["hardware_id", "algorithm"],
+        "grouping": ["accelerator", "algorithm"],
         "feature_definitions": {
             "input_gpixels": (
                 "scan_point_count * detector_shape[0] * detector_shape[1] / 1e9"
@@ -321,7 +321,7 @@ def fit_resource_model(
         "prediction_policy": "warn outside supported_domain; clamp predictions to positive epsilon",
     }
     output = StringIO(newline="")
-    fieldnames = ["hardware_id", "algorithm", "target", "feature", "coefficient", "feature_mean", "feature_scale", "r2", "rmse", "n"]
+    fieldnames = ["accelerator", "algorithm", "target", "feature", "coefficient", "feature_mean", "feature_scale", "r2", "rmse", "n"]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(coefficient_rows)

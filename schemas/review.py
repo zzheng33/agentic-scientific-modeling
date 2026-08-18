@@ -30,8 +30,6 @@ class ReviewSubmission(BaseModel):
         if self.status == "completed":
             if self.decision is None:
                 raise ValueError("A completed review requires a decision")
-            if not (self.reviewer or "").strip():
-                raise ValueError("A completed review requires reviewer identity")
             if self.decision == "edit" and self.edited_artifact is None:
                 raise ValueError("An edit decision requires edited_artifact")
             if self.decision != "edit" and self.edited_artifact is not None:

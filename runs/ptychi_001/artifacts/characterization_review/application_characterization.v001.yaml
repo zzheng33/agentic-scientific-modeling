@@ -1,0 +1,2220 @@
+schema_version: '0.1'
+analysis:
+  analysis_id: pty-chi-input-discovery-2026-08-18
+  created_at: '2026-08-18'
+  agent_version: systemflow-application-characterization-agent
+  source_revision: null
+  status: awaiting_human_review
+application:
+  name: pty-chi
+  source_path: .
+  languages:
+  - Python
+  frameworks:
+  - PyTorch
+  - NumPy
+  - h5py
+  - SciPy
+  - scikit-learn
+  summary: PyTorch-based ptychographic reconstruction package. The selected runner
+    loads diffraction intensities, an initial complex probe, object pixel size, and
+    scan positions from paired HDF5 files, constructs an object buffer, and performs
+    iterative reconstruction. Separate model groups cover PIE, ePIE, rPIE, momentum-configured
+    rPIE, Difference Map, LSQML, BH, and automatic-differentiation ptychography.
+  analysis_boundary: The characterization covers task construction, dataset preprocessing,
+    iterative reconstruction, major propagation and pixelwise work, diffraction storage
+    reads, accelerator transfers, and optional runner output. Alternative reconstructors
+    are separate model groups sharing the approved candidate-input vector. Exact executed
+    FLOPs for PyTorch FFTs, automatic differentiation, interpolation, optimizers,
+    optional features, and variant-specific analytical updates remain unresolved where
+    source code does not establish a portable arithmetic count.
+  variants:
+  - variant_id: pie
+    display_name: PIE
+    evidence:
+    - src/ptychi/api/options/pie.py:13-16 identifies PIEReconstructorOptions as the
+      PIE reconstructor.
+    - scripts/run_ptychi.py:129-132 constructs PIEOptions.
+  - variant_id: epie
+    display_name: ePIE
+    evidence:
+    - src/ptychi/api/options/pie.py:68-78 defines EPIEReconstructorOptions and EPIEOptions.
+    - scripts/run_ptychi.py:133-136 constructs EPIEOptions.
+  - variant_id: rpie
+    display_name: rPIE
+    evidence:
+    - src/ptychi/api/options/pie.py:81-91 defines RPIEReconstructorOptions and RPIEOptions.
+    - scripts/run_ptychi.py:137-140 constructs RPIEOptions.
+  - variant_id: mpie_runner_configuration
+    display_name: Momentum-configured rPIE
+    evidence:
+    - scripts/run_ptychi.py:141-146 maps the runner's mpie selection to RPIEOptions
+      with momentum and Nesterov optimizer parameters.
+    notes: This is a runner configuration rather than a distinct reconstructor enum.
+  - variant_id: dm
+    display_name: Difference Map
+    evidence:
+    - src/ptychi/api/options/dm.py:12-22 defines DM options including chunk length.
+    - src/ptychi/reconstructors/dm.py:28-41 describes Difference Map memory behavior
+      and its lack of minibatching.
+    - scripts/run_ptychi.py:151-156 constructs DMOptions.
+  - variant_id: lsqml
+    display_name: Least-squares maximum likelihood
+    evidence:
+    - src/ptychi/api/options/lsqml.py:16-27 defines LSQML noise-model options.
+    - scripts/run_ptychi.py:147-150 constructs LSQMLOptions.
+  - variant_id: bh
+    display_name: BH gradient-descent or conjugate-gradient reconstruction
+    evidence:
+    - src/ptychi/api/options/bh.py:12-22 defines BH methods GD and CG.
+    - scripts/run_ptychi.py:157-163 constructs BHOptions and selects GD in the benchmark
+      runner.
+  - variant_id: ad_ptycho
+    display_name: Automatic-differentiation ptychography
+    evidence:
+    - src/ptychi/api/options/ad_ptychography.py:16-21 identifies the AD ptychography
+      reconstructor.
+    - scripts/run_ptychi.py:164-165 constructs AutodiffPtychographyOptions.
+entrypoints:
+- entrypoint_id: benchmark_single_run
+  kind: command_line_script
+  path: scripts/run_ptychi.py
+  symbol: run_single
+  invocation: python scripts/run_ptychi.py --dataset <key-or-stem> --algorithm <variant>
+    --epochs <E> --batch-size <B>
+  selected: true
+  evidence:
+  - scripts/run_ptychi.py:251-295 defines the single-run command-line interface.
+  - scripts/run_ptychi.py:324-375 resolves and loads the dataset, builds options,
+    creates PtychographyTask, and runs reconstruction.
+  - scripts/run_ptychi.py:651-661 dispatches to run_single unless --modeling is present.
+  confidence: high
+- entrypoint_id: modeling_sweep
+  kind: command_line_experiment_driver
+  path: scripts/run_ptychi.py
+  symbol: run_modeling
+  invocation: python scripts/run_ptychi.py --modeling --datasets <...> --algorithms
+    <...> --epochs <...>
+  selected: true
+  evidence:
+  - scripts/run_ptychi.py:605-629 defines modeling-sweep options.
+  - scripts/run_ptychi.py:640-643 loops over datasets, algorithms, and epoch counts.
+  - scripts/run_ptychi.py:491-522 constructs one single-run subprocess per experiment.
+  confidence: high
+- entrypoint_id: python_task_api
+  kind: python_api
+  path: src/ptychi/api/task.py
+  symbol: PtychographyTask
+  invocation: task = ptychi.api.task.PtychographyTask(options); task.run()
+  selected: true
+  evidence:
+  - src/ptychi/api/task.py:62-81 initializes and builds PtychographyTask.
+  - src/ptychi/api/task.py:261-280 runs the configured number of epochs.
+  - src/ptychi/api/options/task.py:11-24 defines the task's data, object, probe, position,
+    OPR-weight, and reconstructor option groups.
+  confidence: high
+candidate_inputs:
+- input_id: n_scan_points
+  display_name: Number of diffraction patterns / scan points
+  symbol: N
+  classification: problem_shape
+  data_type: positive integer
+  units: patterns
+  valid_domain:
+    minimum: 1
+    consistency: Must agree across data.shape[0], scan-position count, and per-position
+      OPR weights.
+  default_value: null
+  model_input: true
+  affects:
+  - FLOPs
+  - I/O bytes
+  - memory
+  - host-to-device transfers
+  - minibatch iterations
+  - distributed work partitioning
+  - setup clustering
+  exclusion_reason: null
+  evidence:
+  - scripts/run_ptychi.py:91-100 loads the diffraction stack and one x/y position
+    pair per scan point.
+  - src/ptychi/io_handles.py:56-63 indexes patterns by scan point and defines dataset
+    length as len(patterns).
+  - src/ptychi/reconstructors/base.py:381-388 loops over every DataLoader batch in
+    every epoch.
+  - src/ptychi/api/task.py:221-230 creates or expands OPR weights over data.shape[0]
+    or the position count.
+  - src/ptychi/reconstructors/dm.py:128-137 allocates a stored exit wave whose first
+    dimension is the number of scan points.
+  assumptions:
+  - The leading data dimension represents independent scan positions.
+  - No data-filtering stage in the inspected runner changes N after loading.
+  confidence: high
+  human_decision: null
+- input_id: detector_shape
+  display_name: Diffraction-pattern detector height and width
+  symbol: '[H_d, W_d]'
+  classification: problem_shape
+  data_type: pair of positive integers
+  units: pixels
+  valid_domain:
+    height_minimum: 1
+    width_minimum: 1
+    source: Last two dimensions of data.
+  default_value: null
+  model_input: true
+  affects:
+  - FFT FLOPs
+  - pixelwise FLOPs
+  - I/O bytes
+  - memory
+  - transfers
+  - temporary wavefield sizes
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/data.py:19-23 defines the input as intensity data.
+  - src/ptychi/io_handles.py:43-48 creates and shifts a valid-pixel mask with patterns.shape[-2:].
+  - src/ptychi/forward_models.py:45-60 describes detector_size as a two-dimensional
+    detector shape.
+  - scripts/run_ptychi.py:337-338 reports data and probe shapes after loading.
+  assumptions:
+  - The usual runner data shape is [N, H_d, W_d].
+  - Height and width should remain separate because non-square detector support exists
+    in the API.
+  confidence: high
+  human_decision: null
+- input_id: diffraction_storage_dtype
+  display_name: Diffraction data storage dtype
+  symbol: dtype_data
+  classification: problem_shape
+  data_type: numeric dtype
+  units: null
+  valid_domain:
+    examples:
+    - float16
+    - float32
+    - float64
+    - integer detector dtype
+    constraint: Must be convertible to a PyTorch tensor.
+  default_value: null
+  model_input: true
+  affects:
+  - input I/O bytes
+  - host memory
+  - conversion cost
+  - transfer bytes
+  exclusion_reason: null
+  evidence:
+  - scripts/run_ptychi.py:91-92 reads the complete HDF5 dp dataset into a NumPy array.
+  - src/ptychi/io_handles.py:38 stores patterns using to_tensor without an explicit
+    dtype argument.
+  - scripts/run_ptychi.py:337 prints the loaded data dtype.
+  assumptions:
+  - Compute precision is represented separately because the task has an independent
+    default_dtype option.
+  confidence: high
+  human_decision: null
+- input_id: object_shape
+  display_name: Object tensor shape
+  symbol: '[S, H_o, W_o]'
+  classification: problem_shape
+  data_type: tuple of positive integers
+  units: complex pixels
+  valid_domain:
+    n_slices_minimum: 1
+    height_minimum: 1
+    width_minimum: 1
+  default_value: null
+  model_input: true
+  affects:
+  - persistent memory
+  - optimizer-state memory
+  - constraint FLOPs
+  - multislice propagation FLOPs
+  - output I/O bytes
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/base.py:375-385 defines the complex object initial guess
+    and optional multislice spacings.
+  - src/ptychi/forward_models.py:125-127 identifies object patches with shape [batch_size,
+    n_slices, h, w].
+  - scripts/run_ptychi.py:171-180 derives an object shape from position geometry,
+    probe shape, and extra pixels, then creates a [1, H_o, W_o] initial guess.
+  - scripts/run_ptychi.py:363 reports the resulting object initial shape.
+  assumptions:
+  - For the benchmark runner S is fixed to 1, but the package API supports S greater
+    than 1.
+  - Object spatial shape is not assumed to equal detector shape.
+  confidence: high
+  human_decision: null
+- input_id: extra_object_pixels
+  display_name: Extra object-buffer padding
+  symbol: P_o
+  classification: execution_parameter
+  data_type: nonnegative integer
+  units: pixels
+  valid_domain:
+    minimum: 0
+  default_value: 64
+  model_input: false
+  affects:
+  - derived object shape
+  - persistent memory
+  - output I/O bytes
+  exclusion_reason: Prefer the realized object shape [S, H_o, W_o] in the workload
+    model. This runner-specific construction parameter is redundant once that shape
+    is known.
+  evidence:
+  - scripts/run_ptychi.py:270 defines --extra-object-pixels with default 64.
+  - scripts/run_ptychi.py:171-180 passes the value to get_suggested_object_size and
+    allocates the object initial guess.
+  assumptions:
+  - Retain this parameter in run metadata so derived object dimensions can be reproduced.
+  confidence: high
+  human_decision: null
+- input_id: probe_shape
+  display_name: Probe OPR-mode, incoherent-mode, and spatial shape
+  symbol: '[M_opr, M_probe, H_p, W_p]'
+  classification: problem_shape
+  data_type: tuple of positive integers
+  units: complex samples
+  valid_domain:
+    opr_modes_minimum: 1
+    incoherent_modes_minimum: 1
+    height_minimum: 1
+    width_minimum: 1
+  default_value: null
+  model_input: true
+  affects:
+  - FFT FLOPs
+  - mode-summation FLOPs
+  - persistent memory
+  - optimizer-state memory
+  - batch temporaries
+  - output I/O bytes
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/base.py:681-694 specifies probe initial_guess shape as
+    [n_opr_modes, n_modes, h, w].
+  - src/ptychi/api/options/base.py:721-724 enforces a four-dimensional probe tensor.
+  - src/ptychi/forward_models.py:130-144 gives wavefield and shifted-probe shapes
+    containing batch size, probe modes, slices, and spatial dimensions.
+  - src/ptychi/forward_models.py:193-197 states that low-memory mode propagates incoherent
+    probe modes sequentially.
+  - scripts/run_ptychi.py:102-111 expands a three-dimensional loaded probe to four
+    dimensions.
+  assumptions:
+  - Keep M_opr and M_probe separate because they have different weighting and update
+    behavior.
+  - The runner normally inserts a singleton OPR dimension when the HDF5 probe has
+    three dimensions.
+  confidence: high
+  human_decision: null
+- input_id: scan_geometry
+  display_name: Probe-position geometry and spatial distribution
+  symbol: X[N,2]
+  classification: scientific_input
+  data_type: N by 2 real-valued array
+  units: object pixels
+  valid_domain:
+    shape: '[N, 2]'
+    components:
+    - y position
+    - x position
+  default_value: null
+  model_input: false
+  affects:
+  - derived object shape
+  - patch placement
+  - compact/uniform batch setup
+  - position-correction work
+  exclusion_reason: The exact coordinate array is scientific data rather than a compact
+    scalar workload input. Capture N, realized object shape, batching mode, and whether
+    position correction is active; request a geometry summary only if compact-batching
+    setup or overlap-dependent behavior must be modeled.
+  evidence:
+  - scripts/run_ptychi.py:97-109 loads positions, converts meters to object pixels,
+    and optionally centers them.
+  - src/ptychi/api/task.py:215-219 stacks x/y positions into an [N,2] tensor.
+  - src/ptychi/io_handles.py:71-90 uses positions and batch size to construct compact
+    clusters.
+  - src/ptychi/api/options/base.py:447-459 explains mapping probe positions into the
+    object buffer.
+  assumptions:
+  - A later review may approve summaries such as x/y extent, scan-grid dimensions,
+    or overlap ratio instead of the full array.
+  confidence: high
+  human_decision: null
+- input_id: num_epochs
+  display_name: Reconstruction epochs
+  symbol: E
+  classification: execution_parameter
+  data_type: nonnegative integer
+  units: epochs
+  valid_domain:
+    minimum: 0
+  default_value: 500
+  model_input: true
+  affects:
+  - iterations
+  - FLOPs
+  - data transfers
+  - scheduled execution phases
+  exclusion_reason: null
+  evidence:
+  - scripts/run_ptychi.py:268 defines --epochs with runner default 500.
+  - src/ptychi/api/options/base.py:1047-1050 defines the API default as 100.
+  - src/ptychi/reconstructors/base.py:377-385 loops over the selected number of epochs
+    and then over the DataLoader.
+  assumptions:
+  - The runner default and package-API default differ; the applicable default depends
+    on entrypoint.
+  confidence: high
+  human_decision: null
+- input_id: batch_size
+  display_name: Minibatch size
+  symbol: B
+  classification: execution_parameter
+  data_type: positive integer
+  units: patterns per minibatch
+  valid_domain:
+    minimum: 1
+    effective_maximum: Usually N; the benchmark runner clamps it to N for non-PIE
+      variants.
+  default_value: 1000
+  model_input: true
+  affects:
+  - minibatch iterations
+  - peak memory
+  - temporary tensor sizes
+  - transfer sizes
+  - kernel granularity
+  exclusion_reason: null
+  evidence:
+  - scripts/run_ptychi.py:269 defines --batch-size with default 1000.
+  - scripts/run_ptychi.py:195-202 forces B=1 for PIE, clamps B to N for other variants,
+    and uses it as DM chunk length.
+  - src/ptychi/api/options/base.py:1052-1053 defines batch size as data per minibatch.
+  - src/ptychi/reconstructors/base.py:301-312 supplies batch_size to DataLoader.
+  - src/ptychi/forward_models.py:121-137 shows major intermediate tensors carrying
+    a batch-size dimension.
+  assumptions:
+  - Record effective rather than merely requested B.
+  - DM ignores ordinary batch_size and processes the complete dataset in one DataLoader
+    batch.
+  confidence: high
+  human_decision: null
+- input_id: dm_chunk_length
+  display_name: Difference Map chunk length
+  symbol: C_dm
+  classification: execution_parameter
+  data_type: positive integer
+  units: scan points per chunk
+  valid_domain:
+    minimum: 1
+    maximum: N
+  default_value: 1
+  model_input: true
+  affects:
+  - peak temporary memory
+  - chunk-loop iterations
+  - execution time
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/dm.py:20-22 defines chunk_length and its speed/memory tradeoff.
+  - src/ptychi/reconstructors/dm.py:32-40 distinguishes chunk length from unsupported
+    minibatching.
+  - src/ptychi/reconstructors/dm.py:116-140 constructs ceil(N/chunk_length) chunks.
+  - scripts/run_ptychi.py:201-202 sets DM chunk length from the requested batch size.
+  assumptions:
+  - This input applies only to the DM variant but remains a field in the shared approved
+    vector, with a not-applicable value for other variants.
+  confidence: high
+  human_decision: null
+- input_id: batching_mode
+  display_name: Minibatch selection mode
+  symbol: mode_batch
+  classification: execution_parameter
+  data_type: enum
+  units: null
+  valid_domain:
+    values:
+    - RANDOM
+    - COMPACT
+    - UNIFORM
+  default_value: RANDOM
+  model_input: true
+  affects:
+  - setup phase
+  - clustering FLOPs
+  - setup memory
+  - batch composition
+  - optional recurring clustering phases
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/enums.py:9-12 defines the three batching modes.
+  - src/ptychi/api/options/base.py:1055-1076 documents batching behavior and optional
+    cluster updates.
+  - src/ptychi/io_handles.py:71-107 builds compact batches using clustering.
+  - src/ptychi/io_handles.py:131-170 runs multiple k-means trials when constructing
+    compact batches.
+  assumptions:
+  - The benchmark runner leaves this at RANDOM.
+  - COMPACT setup can depend on the full position distribution, not only N and B.
+  confidence: high
+  human_decision: null
+- input_id: optimized_parameter_groups
+  display_name: Optimized reconstruction parameters and their schedules
+  symbol: G_opt
+  classification: algorithm_parameter
+  data_type: structured set of booleans and epoch ranges
+  units: null
+  valid_domain:
+    groups:
+    - object
+    - probe
+    - probe positions
+    - OPR mode weights
+    - slice spacings
+    schedule_fields:
+    - start
+    - stop
+    - stride
+  default_value:
+    base_parameter_optimizable: true
+    start: 0
+    stop: null
+    stride: 1
+  model_input: true
+  affects:
+  - backward/update FLOPs
+  - optimizer-state memory
+  - gradient memory
+  - per-epoch execution phases
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/base.py:89-130 defines optimization start, stop, and stride
+    behavior.
+  - src/ptychi/api/options/base.py:141-167 defines optimizable, optimizer, step size,
+    and optimizer parameters.
+  - src/ptychi/forward_models.py:71-76 registers only parameters marked optimizable.
+  - scripts/run_ptychi.py:182-193 enables object optimization, conditionally enables
+    probe optimization, and disables position optimization.
+  - scripts/run_ptychi.py:273 and 357 expose --fixed-probe as the runner control.
+  assumptions:
+  - The workload model should encode active groups and schedule counts, not optimizer
+    learning-rate values that do not alter the operation graph.
+  - Optimizer identity may require a separate reviewed field if Adam-like state and
+    update operations are exercised.
+  confidence: high
+  human_decision: null
+- input_id: forward_propagation_configuration
+  display_name: Propagation regime and multislice spacing configuration
+  symbol: P_fwd
+  classification: scientific_input
+  data_type: structured
+  units: null
+  valid_domain:
+    free_space_propagation_distance_m: Positive finite value for near-field or infinity
+      for far-field
+    wavelength_m: Positive real in meters
+    slice_spacings_m: S-1 spacing values for a multislice object
+  default_value:
+    free_space_propagation_distance_m: infinity
+    wavelength_m: 1.0e-09
+    slice_spacings_m: null
+  model_input: true
+  affects:
+  - FFT and propagation FLOPs
+  - temporary memory
+  - number of propagation phases
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/data.py:25-29 defines propagation distance and wavelength.
+  - src/ptychi/api/options/base.py:380-385 defines multislice spacings.
+  - src/ptychi/forward_models.py:163-164 states that the planar forward model supports
+    multislice propagation.
+  - src/ptychi/forward_models.py:179-197 documents wavelength, near/far-field distance,
+    padding, and low-memory mode.
+  assumptions:
+  - S in object_shape captures the dominant multislice loop bound; this field identifies
+    the propagation regime and spacing-dependent phase.
+  - Detector pixel size is present in data options but was not observed being passed
+    into PtychographyDataset by PtychographyTask in src/ptychi/api/task.py:170-177.
+  confidence: high
+  human_decision: null
+- input_id: forward_model_memory_options
+  display_name: Forward-model low-memory mode, shift padding, and diffraction blur
+  symbol: F_opts
+  classification: execution_parameter
+  data_type: structured
+  units: null
+  valid_domain:
+    low_memory_mode: boolean
+    pad_for_shift: nonnegative integer or null
+    diffraction_pattern_blur_sigma: nonnegative real or null
+  default_value:
+    low_memory_mode: false
+    pad_for_shift: 0
+    diffraction_pattern_blur_sigma: null
+  model_input: true
+  affects:
+  - FLOPs
+  - peak memory
+  - temporary spatial shape
+  - execution phases
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/base.py:1030-1043 defines low-memory mode, shift padding,
+    and optional Gaussian detector blur.
+  - src/ptychi/forward_models.py:183-197 describes the extra padding, blur, and sequential
+    mode propagation.
+  - scripts/run_ptychi.py:161-163 sets BH shift padding to 4.
+  assumptions:
+  - These fields can be not applicable or defaulted for variants that do not invoke
+    the same forward-model path.
+  confidence: high
+  human_decision: null
+- input_id: optional_feature_schedule
+  display_name: Enabled constraints, corrections, regularizers, or neural priors
+  symbol: F_enabled
+  classification: algorithm_parameter
+  data_type: structured set of feature identifiers and epoch schedules
+  units: null
+  valid_domain:
+    examples:
+    - object L1/L2/smoothness/total-variation constraints
+    - multislice regularization
+    - probe power/support/centering constraints
+    - position correction
+    - deep image prior
+    - synthesis dictionary learning
+  default_value:
+    most_optional_features_enabled: false
+  model_input: true
+  affects:
+  - additional FLOPs
+  - additional memory
+  - additional optimizer states
+  - scheduled execution phases
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/base.py:173-188 defines enabled features with optimization
+    schedules.
+  - src/ptychi/api/options/base.py:397-423 lists object constraints and multislice
+    regularization.
+  - src/ptychi/api/options/base.py:696-714 lists probe power, orthogonalization, support,
+    and center constraints.
+  - src/ptychi/api/options/ad_ptychography.py:24-50 defines deep-image-prior options
+    including network input channels and model parameters.
+  - src/ptychi/api/task.py:186-213 substitutes neural-prior or synthesis-dictionary
+    object/probe implementations when enabled.
+  assumptions:
+  - Human review should decide whether each feature needs an individual scalar input
+    or whether a feature-set identifier plus schedule is sufficient.
+  - Neural-prior architecture dimensions become additional problem-shape inputs if
+    that feature is included in the characterization scope.
+  confidence: medium
+  human_decision: null
+- input_id: compute_precision
+  display_name: Compute precision and FFT precision override
+  symbol: '[dtype_compute, fft64]'
+  classification: execution_parameter
+  data_type: enum plus boolean
+  units: null
+  valid_domain:
+    default_dtype:
+    - FLOAT16
+    - FLOAT32
+    - FLOAT64
+    use_double_precision_for_fft:
+    - false
+    - true
+  default_value:
+    default_dtype: FLOAT32
+    use_double_precision_for_fft: false
+  model_input: true
+  affects:
+  - memory bytes
+  - transfer bytes
+  - FFT execution
+  - arithmetic throughput
+  - temporary tensor bytes
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/enums.py:78-81 defines supported floating-point dtype options.
+  - src/ptychi/api/options/base.py:1082-1089 defines default dtype and the double-precision
+    FFT override.
+  - src/ptychi/api/task.py:144-151 applies default real/complex dtypes and FFT precision.
+  - scripts/run_ptychi.py:306-308 fixes the benchmark runner to float32 and complex64.
+  assumptions:
+  - Precision is included because byte counts and possibly operation implementations
+    differ, even when mathematical operation counts do not.
+  confidence: high
+  human_decision: null
+- input_id: data_residency
+  display_name: Keep the complete diffraction stack on the accelerator
+  symbol: data_on_device
+  classification: execution_parameter
+  data_type: boolean
+  units: null
+  valid_domain:
+    values:
+    - false
+    - true
+  default_value: false
+  model_input: true
+  affects:
+  - accelerator memory
+  - host memory
+  - per-minibatch host-to-device transfers
+  - setup transfer
+  exclusion_reason: null
+  evidence:
+  - src/ptychi/api/options/data.py:40-41 defines save_data_on_device.
+  - src/ptychi/api/task.py:160-176 disables accelerator residency under multi-process
+    execution and passes the effective setting to the dataset.
+  - src/ptychi/io_handles.py:38 stores patterns on CPU or the accelerator depending
+    on this setting.
+  - src/ptychi/reconstructors/base.py:335-342 transfers measured batches to the default
+    device when necessary.
+  assumptions:
+  - The benchmark runner does not override the API default, so its diffraction data
+    remain on CPU and are transferred by batch.
+  confidence: high
+  human_decision: null
+- input_id: device_class
+  display_name: Execution device class
+  symbol: device
+  classification: hardware_parameter
+  data_type: enum
+  units: null
+  valid_domain:
+    runner_values:
+    - cpu
+    - cuda
+    - xpu
+    api_values:
+    - CPU
+    - GPU
+  default_value: cuda
+  model_input: false
+  affects:
+  - execution placement
+  - transfer phases
+  - available memory
+  - runtime
+  exclusion_reason: Hardware selection should parameterize the target platform or
+    performance model, not the application workload vector. Keep it as experiment
+    metadata.
+  evidence:
+  - scripts/run_ptychi.py:276 defines the runner device choices.
+  - scripts/run_ptychi.py:297-308 performs availability checks and selects the default
+    device.
+  - src/ptychi/api/options/base.py:1079-1080 defines the API computation device.
+  - src/ptychi/api/task.py:105-138 applies device selection and reports visible accelerators.
+  assumptions:
+  - CPU fallback changes the actual platform and must be recorded even though it is
+    excluded from the intrinsic workload input vector.
+  confidence: high
+  human_decision: null
+- input_id: distributed_world_size
+  display_name: Number of distributed ranks/devices
+  symbol: R
+  classification: hardware_parameter
+  data_type: positive integer
+  units: ranks
+  valid_domain:
+    minimum: 1
+    constraint: For NCCL, ranks cannot exceed visible accelerator count.
+  default_value: 1
+  model_input: false
+  affects:
+  - per-rank work
+  - per-rank memory
+  - collective transfers
+  - execution phases
+  exclusion_reason: Parallel decomposition is a machine/execution mapping parameter
+    rather than an intrinsic workload input. Preserve it in platform and experiment
+    metadata.
+  evidence:
+  - src/ptychi/parallel.py:23-39 obtains world size and exposes it as n_ranks.
+  - src/ptychi/parallel.py:41-83 partitions the leading tensor dimension across ranks.
+  - src/ptychi/parallel.py:85-140 implements broadcast and all-reduce synchronization.
+  - src/ptychi/api/task.py:110-125 initializes distributed execution and assigns ranks
+    to devices.
+  assumptions:
+  - A later performance model may take R as a deployment variable while sharing the
+    approved application input vector.
+  confidence: high
+  human_decision: null
+- input_id: determinism_settings
+  display_name: Random seed and nondeterministic-kernel permission
+  symbol: '[seed, nondeterministic]'
+  classification: reproducibility_parameter
+  data_type: optional integer plus boolean
+  units: null
+  valid_domain:
+    random_seed: integer or null
+    allow_nondeterministic_algorithms: boolean
+  default_value:
+    random_seed: null
+    allow_nondeterministic_algorithms: true
+  model_input: false
+  affects:
+  - kernel selection
+  - runtime variability
+  - reproducibility
+  exclusion_reason: Primarily a reproducibility control. It can alter kernel performance,
+    but it does not describe scientific problem size or intended iteration count;
+    retain as experiment metadata.
+  evidence:
+  - src/ptychi/api/options/base.py:1092-1099 defines nondeterministic algorithm permission
+    and random seed.
+  - src/ptychi/api/task.py:98-103 applies seeds and the nondeterminism setting.
+  - scripts/run_ptychi.py:199-200 forces nondeterministic algorithms off in the benchmark
+    runner.
+  assumptions: []
+  confidence: high
+  human_decision: null
+- input_id: dataset_locator
+  display_name: Dataset key, file stem, and data root
+  symbol: dataset_path
+  classification: operational_parameter
+  data_type: string/path
+  units: null
+  valid_domain:
+    forms:
+    - registered synthetic dataset key
+    - relative converted-data stem
+    - absolute converted-data stem
+  default_value:
+    dataset: IC1
+    data_root: data
+  model_input: false
+  affects:
+  - file selection
+  - input I/O bytes
+  - I/O phase
+  exclusion_reason: Dataset identity is not a portable workload dimension and may
+    confound many scientific and shape variables. Model the loaded shapes, dtypes,
+    modes, and geometry summaries instead.
+  evidence:
+  - scripts/run_ptychi.py:68-82 resolves keys or stems into paired diffraction and
+    parameter HDF5 paths.
+  - scripts/run_ptychi.py:253-262 defines --dataset and --data-root.
+  - scripts/run_ptychi.py:29-47 maps synthetic keys R1000 through R12000 to file stems.
+  assumptions:
+  - The default IC1 is not present in the active DATASETS mapping shown in the inspected
+    runner, so it is interpreted as a stem under data_root.
+  confidence: high
+  human_decision: null
+- input_id: input_preprocessing_controls
+  display_name: Position centering, probe rescaling, and diffraction FFT shift
+  symbol: preprocess
+  classification: operational_parameter
+  data_type: structured booleans
+  units: null
+  valid_domain:
+    center_positions: boolean
+    scale_probe: boolean
+    fft_shift: boolean
+  default_value:
+    center_positions: true
+    scale_probe: true
+    fft_shift: true
+  model_input: false
+  affects:
+  - setup FLOPs
+  - setup memory traffic
+  - derived object placement
+  exclusion_reason: These controls affect preprocessing and initialization but generally
+    not the dominant iterative tensor dimensions. Retain them in phase-specific metadata
+    unless setup cost is explicitly in scope.
+  evidence:
+  - scripts/run_ptychi.py:85-112 performs probe rescaling, position conversion, and
+    optional centering.
+  - scripts/run_ptychi.py:274-275 exposes the centering and rescaling controls.
+  - src/ptychi/api/options/data.py:31-32 defines FFT shifting.
+  - src/ptychi/io_handles.py:39-49 shifts diffraction patterns and the valid-pixel
+    mask.
+  assumptions:
+  - Centering can indirectly alter a suggested object placement, but the realized
+    object shape is captured separately.
+  confidence: high
+  human_decision: null
+- input_id: output_save_control
+  display_name: Whether and where reconstruction outputs are saved
+  symbol: save_output
+  classification: operational_parameter
+  data_type: boolean plus path
+  units: null
+  valid_domain:
+    save: boolean
+    path: writable .npz path when saving
+  default_value:
+    save: true
+    path: outputs/<dataset>_<algorithm>_recon.npz
+  model_input: false
+  affects:
+  - device-to-host transfers
+  - output I/O bytes
+  - save execution phase
+  - host memory
+  exclusion_reason: Output persistence is an operational phase rather than an intrinsic
+    reconstruction workload input. Model it separately if end-to-end I/O is required.
+  evidence:
+  - scripts/run_ptychi.py:279-287 defines output path and --no-save-output.
+  - scripts/run_ptychi.py:384-415 optionally copies object and probe to CPU and writes
+    an NPZ archive.
+  - scripts/run_ptychi.py:521 forces no-save-output for modeling sweeps.
+  assumptions: []
+  confidence: high
+  human_decision: null
+- input_id: power_monitoring_options
+  display_name: External power-monitor configuration
+  symbol: power_monitor
+  classification: operational_parameter
+  data_type: structured
+  units: null
+  valid_domain:
+    vendor:
+    - auto
+    - nvidia
+    - amd
+    - intel
+    interval: positive seconds
+    devices: optional comma-separated indices
+  default_value:
+    power_csv: null
+    vendor: auto
+    interval: 0.2
+    devices: null
+  model_input: false
+  affects:
+  - measurement overhead
+  - auxiliary process
+  - monitoring I/O
+  exclusion_reason: External instrumentation does not define the reconstruction workload
+    and must not enter the workload model.
+  evidence:
+  - scripts/run_ptychi.py:206-237 launches an external monitoring subprocess.
+  - scripts/run_ptychi.py:289-294 defines monitoring controls.
+  - scripts/run_ptychi.py:310-320 starts monitoring before input I/O.
+  assumptions: []
+  confidence: high
+  human_decision: null
+- input_id: dry_run
+  display_name: Dry-run mode
+  symbol: dry_run
+  classification: operational_parameter
+  data_type: boolean
+  units: null
+  valid_domain:
+    values:
+    - false
+    - true
+  default_value: false
+  model_input: false
+  affects:
+  - execution phases
+  - iterations
+  exclusion_reason: When enabled, reconstruction is skipped entirely, so this represents
+    a different operational action rather than a reconstruction workload.
+  evidence:
+  - scripts/run_ptychi.py:277 defines --dry-run.
+  - scripts/run_ptychi.py:366-368 returns before task construction and reconstruction.
+  assumptions: []
+  confidence: high
+  human_decision: null
+execution_phases:
+- phase_id: input_hdf5_read
+  phase_type: input_io
+  description: Read the complete diffraction stack and probe, pixel-size, and position
+    datasets from paired HDF5 files.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: scripts/run_ptychi.py
+    line: 85
+    symbol: load_converted_data
+    description: Loads dp, probe, object pixel size, and the two position arrays.
+  confidence: high
+- phase_id: input_preprocessing
+  phase_type: preprocessing
+  description: Optionally rescales the probe, converts and centers positions, adds
+    a singleton OPR dimension, converts arrays to tensors, and optionally FFT-shifts
+    all diffraction patterns.
+  major: false
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: scripts/run_ptychi.py
+    line: 102
+    symbol: load_converted_data
+    description: Rescales the probe and transforms positions.
+  - source_type: source_code
+    path: src/ptychi/io_handles.py
+    line: 38
+    symbol: PtychographyDataset.__init__
+    description: Converts and optionally shifts the complete diffraction stack.
+  confidence: high
+- phase_id: task_initialization
+  phase_type: initialization
+  description: Build object, probe, positions, OPR weights, propagators, optimizers,
+    preconditioners, DataLoader, and optional compact or uniform batching structures.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/api/task.py
+    line: 86
+    symbol: PtychographyTask.build
+    description: Builds all task data structures and the selected reconstructor.
+  - source_type: source_code
+    path: src/ptychi/io_handles.py
+    line: 104
+    symbol: PtychographyCompactBatchSampler.build_clusters
+    description: Builds geometry-dependent compact clusters.
+  confidence: high
+- phase_id: diffraction_host_to_device
+  phase_type: host_to_device
+  description: Either transfer the complete diffraction stack during dataset setup
+    or transfer each measured minibatch during each epoch.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/io_handles.py
+    line: 38
+    symbol: PtychographyDataset.__init__
+    description: Selects CPU or accelerator residence for patterns.
+  - source_type: source_code
+    path: src/ptychi/reconstructors/base.py
+    line: 338
+    symbol: prepare_batch_data
+    description: Copies a measured batch when its device type differs from the compute
+      device.
+  confidence: high
+- phase_id: forward_model
+  phase_type: compute
+  description: Extract object patches, form position-specific probes, apply subpixel
+    shifts, modulate through S slices, propagate between slices and to the detector,
+    form squared magnitudes, sum incoherent modes, crop to detector size, and optionally
+    blur.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 545
+    symbol: PlanarPtychographyForwardModel.forward
+    description: Implements the principal forward simulation.
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 393
+    symbol: propagate_through_object
+    description: Loops over object slices and propagates between them.
+  confidence: high
+- phase_id: analytical_update
+  phase_type: compute
+  description: For PIE-family, DM, LSQML, and BH groups, calculate reciprocal-space
+    corrections and analytical object, probe, OPR-weight, position, or slice-spacing
+    updates according to active schedules.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/pie.py
+    line: 74
+    symbol: PIEReconstructor.compute_updates
+    description: Performs forward simulation, magnitude replacement, backward propagation,
+      and scheduled updates.
+  - source_type: source_code
+    path: src/ptychi/reconstructors/lsqml.py
+    line: 361
+    symbol: compute_reconstruction_parameter_updates
+    description: Runs reciprocal-space and real-space LSQML update steps.
+  confidence: high
+- phase_id: autodiff_backward_update
+  phase_type: compute
+  description: For AD ptychography, evaluate loss, execute PyTorch automatic differentiation,
+    apply optional regularizers, and step scheduled optimizers.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/ad_ptychography.py
+    line: 138
+    symbol: run_minibatch
+    description: Runs forward prediction, loss.backward(), regularizers, and optimizer
+      steps.
+  confidence: high
+- phase_id: dm_exit_wave
+  phase_type: compute
+  description: For Difference Map, retain an N-by-M_probe exit-wave stack and process
+    it in ceil(N/C_dm) chunks; ordinary minibatching is not used.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/dm.py
+    line: 128
+    symbol: DMReconstructor.compute_updates
+    description: Allocates the stored exit wave and loops over C_dm-sized chunks.
+  confidence: high
+- phase_id: scheduled_constraints
+  phase_type: postprocessing
+  description: Apply enabled object, probe, OPR, position, multislice, clustering,
+    regularization, neural-prior, or dictionary-learning work according to F_enabled
+    and G_opt.
+  major: false
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/base.py
+    line: 462
+    symbol: run_post_epoch_hooks
+    description: Dispatches scheduled constraints and optional recurring clustering.
+  confidence: medium
+- phase_id: distributed_communication
+  phase_type: communication
+  description: When multiple ranks are used, partition minibatches and synchronize
+    selected gradients, reconstruction buffers, or parameters.
+  major: true
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/lsqml.py
+    line: 1623
+    symbol: MultiprocessLSQMLReconstructor.run_minibatch
+    description: Partitions each minibatch and synchronizes selected LSQML buffers.
+  confidence: medium
+- phase_id: result_device_to_host
+  phase_type: device_to_host
+  description: If runner output saving is enabled and computation is on an accelerator,
+    copy reconstructed object and probe tensors to host memory.
+  major: false
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: scripts/run_ptychi.py
+    line: 390
+    symbol: run_single
+    description: Retrieves object and probe as CPU NumPy arrays.
+  confidence: high
+- phase_id: result_npz_write
+  phase_type: output_io
+  description: Optionally write object, probe, position arrays, paths, algorithm label,
+    and timing scalars to an NPZ archive.
+  major: false
+  included_in_scope: true
+  evidence:
+  - source_type: source_code
+    path: scripts/run_ptychi.py
+    line: 398
+    symbol: run_single
+    description: Writes the reconstruction archive with numpy.savez.
+  confidence: high
+derived_quantities:
+- quantity_id: detector_pixels
+  symbol: D
+  units: pixels/pattern
+  expression: H_d * W_d
+  depends_on:
+  - H_d
+  - W_d
+  assumptions: []
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/io_handles.py
+    line: 43
+    symbol: PtychographyDataset.__init__
+    description: The last two pattern dimensions are the detector dimensions.
+  confidence: high
+- quantity_id: probe_pixels
+  symbol: Q
+  units: pixels/wavefield
+  expression: H_p * W_p
+  depends_on:
+  - H_p
+  - W_p
+  assumptions: []
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 478
+    symbol: propagate_to_next_slice
+    description: Uses probe height and width for propagated wavefields.
+  confidence: high
+- quantity_id: object_elements
+  symbol: O
+  units: complex elements
+  expression: S * H_o * W_o
+  depends_on:
+  - S
+  - H_o
+  - W_o
+  assumptions: []
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 125
+    symbol: obj_patches
+    description: Object tensors and patches carry a slice and two spatial dimensions.
+  confidence: high
+- quantity_id: probe_elements
+  symbol: P
+  units: complex elements
+  expression: M_opr * M_probe * Q
+  depends_on:
+  - M_opr
+  - M_probe
+  - Q
+  assumptions: []
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 307
+    symbol: get_unique_probes
+    description: Probe storage has OPR modes, incoherent modes, and two spatial dimensions.
+  confidence: high
+- quantity_id: ordinary_batches_per_epoch
+  symbol: K
+  units: batches/epoch
+  expression: ceil(N / B)
+  depends_on:
+  - N
+  - B
+  assumptions:
+  - Applies to non-DM variants.
+  - All N patterns are processed once per epoch.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/base.py
+    line: 301
+    symbol: build_dataloader
+    description: Uses a non-dropping DataLoader with batch size B.
+  confidence: high
+- quantity_id: dm_chunks_per_epoch
+  symbol: J_dm
+  units: chunks/epoch
+  expression: ceil(N / C_dm)
+  depends_on:
+  - N
+  - C_dm
+  assumptions:
+  - Applies only to the DM model group.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/dm.py
+    line: 126
+    symbol: DMReconstructor.compute_updates
+    description: Computes n_chunks as ceil(N/chunk_length).
+  confidence: high
+- quantity_id: real_compute_bytes
+  symbol: b_r
+  units: bytes/real element
+  expression: bytes(dtype_compute)
+  depends_on:
+  - dtype_compute
+  assumptions:
+  - FLOAT16=2, FLOAT32=4, and FLOAT64=8 bytes.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/api/task.py
+    line: 144
+    symbol: build_default_dtype
+    description: Sets the default real compute dtype.
+  confidence: high
+- quantity_id: complex_compute_bytes
+  symbol: b_c
+  units: bytes/complex element
+  expression: 2 * b_r
+  depends_on:
+  - b_r
+  assumptions:
+  - Complex tensors use two components of the corresponding real compute dtype.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/api/task.py
+    line: 146
+    symbol: build_default_dtype
+    description: Maps the real default dtype to the corresponding complex dtype.
+  confidence: high
+- quantity_id: diffraction_element_bytes
+  symbol: b_data
+  units: bytes/element
+  expression: bytes(dtype_data)
+  depends_on:
+  - dtype_data
+  assumptions:
+  - The HDF5 diffraction payload is read without an explicit dtype conversion.
+  evidence:
+  - source_type: source_code
+    path: scripts/run_ptychi.py
+    line: 91
+    symbol: load_converted_data
+    description: Reads dp directly into a NumPy array.
+  confidence: high
+- quantity_id: free_space_fft_count
+  symbol: T_free
+  units: complex 2D FFTs/propagation
+  expression: 1 if P_fwd.free_space_propagation_distance_m is infinity; 1 if finite
+    and the Fresnel-transform branch is selected; 2 if finite and the angular-spectrum
+    branch is selected
+  depends_on:
+  - P_fwd
+  assumptions:
+  - A forward or backward Fourier/Fresnel propagation uses one FFT or inverse FFT.
+  - An angular-spectrum propagation uses one FFT and one inverse FFT.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/forward_models.py
+    line: 273
+    symbol: build_free_space_propagator
+    description: Selects Fourier, Fresnel-transform, or angular-spectrum propagation.
+  - source_type: source_code
+    path: src/ptychi/propagate.py
+    line: 134
+    symbol: FourierPropagator
+    description: Uses one FFT for forward and one inverse FFT for backward propagation.
+  - source_type: source_code
+    path: src/ptychi/propagate.py
+    line: 179
+    symbol: AngularSpectrumPropagator
+    description: Uses FFT, pointwise transfer multiplication, and inverse FFT per
+      propagation.
+  confidence: high
+- quantity_id: scheduled_active_epochs
+  symbol: E_active(g)
+  units: epochs
+  expression: count of integers e with 0 <= e < E for which group g in G_opt is optimizable
+    and its [start,stop,stride] schedule is enabled
+  depends_on:
+  - E
+  - G_opt
+  assumptions:
+  - g is one of the approved G_opt parameter groups.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/reconstructors/ad_ptychography.py
+    line: 51
+    symbol: update_requires_grad
+    description: Tests each parameter's per-epoch optimization plan.
+  confidence: high
+- quantity_id: conventional_fft_flops
+  symbol: F_fft(Q)
+  units: FLOPs/complex 2D FFT
+  expression: 5 * Q * log2(Q)
+  depends_on:
+  - Q
+  assumptions:
+  - This is a conventional radix-2 theoretical complex-FFT estimate, not a count established
+    by PyTorch or the repository.
+  - One real addition or multiplication counts as one FLOP.
+  - Non-power-of-two shapes and vendor FFT algorithms can execute different work.
+  evidence:
+  - source_type: source_code
+    path: src/ptychi/maths.py
+    line: 392
+    symbol: fft2_precise
+    description: Confirms that repository propagation invokes PyTorch complex two-dimensional
+      FFTs; the numerical coefficient is an explicit modeling convention.
+  confidence: low
+compute_model:
+  terms:
+  - term_id: all_groups_forward_slice_modulation
+    phase_id: forward_model
+    operation: 'All model groups: complex object-wavefield modulation for each sample,
+      incoherent probe mode, and object slice.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: 6 * E * N * M_probe * S * Q
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - S
+    - Q
+    assumptions:
+    - One complex multiplication is counted as six real FLOPs.
+    - Every epoch processes all N patterns.
+    - This term excludes OPR probe synthesis, shifts, propagation, detector intensity
+      formation, and update work.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 393
+      symbol: propagate_through_object
+      description: Loops over S and multiplies each slice patch into every batch and
+        probe-mode wavefield.
+    confidence: medium
+    validation_required: true
+  - term_id: all_groups_forward_multislice_fft
+    phase_id: forward_model
+    operation: 'All model groups supporting multislice: forward angular-spectrum propagation
+      between adjacent object slices.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * M_probe * 2 * (S - 1) * F_fft(Q)
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - S
+    - F_fft(Q)
+    assumptions:
+    - Each inter-slice angular-spectrum propagation performs one FFT and one inverse
+      FFT.
+    - DM and BH reject S>1, so this term is zero or not applicable for those groups.
+    - Transfer-function construction and pointwise multiplication are excluded.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 402
+      symbol: propagate_through_object
+      description: Propagates after every slice except the final slice.
+    - source_type: source_code
+      path: src/ptychi/propagate.py
+      line: 179
+      symbol: AngularSpectrumPropagator.propagate_forward
+      description: Uses FFT and inverse FFT around transfer-function multiplication.
+    confidence: medium
+    validation_required: true
+  - term_id: all_groups_forward_free_space_fft
+    phase_id: forward_model
+    operation: 'All model groups: propagate each exit wave from the object to the
+      detector.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * M_probe * T_free * F_fft(Q)
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - T_free
+    - F_fft(Q)
+    assumptions:
+    - One forward simulation is performed per pattern and epoch.
+    - DM performs this detector propagation inside its update rather than through
+      the ordinary forward method, but still once per pattern and epoch.
+    - LSQML epoch-zero probe-rescaling behavior still evaluates the forward model.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 572
+      symbol: PlanarPtychographyForwardModel.forward
+      description: Calls forward real-space and detector propagation once per forward
+        evaluation.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/dm.py
+      line: 241
+      symbol: apply_dm_update_to_exit_wave_chunk
+      description: Propagates each revised DM chunk to the detector.
+    confidence: medium
+    validation_required: true
+  - term_id: all_groups_detector_intensity
+    phase_id: forward_model
+    operation: 'All model groups: squared complex magnitude and incoherent-mode summation
+      before detector cropping.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * Q * (3 * M_probe + M_probe - 1)
+    depends_on:
+    - E
+    - N
+    - Q
+    - M_probe
+    assumptions:
+    - A squared complex magnitude is modeled as two multiplications plus one addition.
+    - Summing M_probe real intensities requires M_probe-1 additions.
+    - The expression covers the ordinary forward-model groups; DM instead applies
+      magnitude replacement to complex detector waves and does not call the intensity-summing
+      forward path in the same form.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 575
+      symbol: PlanarPtychographyForwardModel.forward
+      description: Computes abs(psi_far)^2 and sums along probe modes.
+    confidence: medium
+    validation_required: true
+  - term_id: pie_family_backward_free_space_fft
+    phase_id: analytical_update
+    operation: 'PIE, ePIE, rPIE, and momentum-configured rPIE groups: propagate magnitude-corrected
+      detector wavefields back to the object.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * M_probe * T_free * F_fft(Q)
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - T_free
+    - F_fft(Q)
+    assumptions:
+    - Applies separately to the pie, epie, rpie, and mpie_runner_configuration groups.
+    - One detector-to-object propagation follows each forward simulation.
+    - Additional backward inter-slice propagation and analytical update arithmetic
+      are separate.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/pie.py
+      line: 95
+      symbol: PIEReconstructor.compute_updates
+      description: Replaces detector magnitude and invokes backward free-space propagation.
+    confidence: medium
+    validation_required: true
+  - term_id: pie_family_backward_multislice_fft
+    phase_id: analytical_update
+    operation: 'PIE, ePIE, rPIE, and momentum-configured rPIE groups: backpropagate
+      update wavefields through S-1 slice gaps.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * M_probe * 2 * (S - 1) * F_fft(Q)
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - S
+    - F_fft(Q)
+    assumptions:
+    - Each backward angular-spectrum propagation uses one FFT and one inverse FFT.
+    - The four PIE-family groups share this code path but remain separate model groups.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/pie.py
+      line: 200
+      symbol: PIEReconstructor.compute_updates
+      description: For each slice above zero, conjugate-modulates and propagates the
+        update to the previous slice.
+    confidence: medium
+    validation_required: true
+  - term_id: dm_backward_free_space_fft
+    phase_id: dm_exit_wave
+    operation: 'Difference Map group: propagate each revised detector wavefield back
+      to the sample plane.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E * N * M_probe * T_free * F_fft(Q)
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - T_free
+    - F_fft(Q)
+    assumptions:
+    - DM supports only S=1 and M_opr=1.
+    - C_dm changes chunk granularity and peak temporary memory, not the aggregate
+      number of per-pattern propagations.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/dm.py
+      line: 251
+      symbol: apply_dm_update_to_exit_wave_chunk
+      description: Backpropagates every revised chunk from detector to sample plane.
+    confidence: medium
+    validation_required: true
+  - term_id: dm_first_epoch_exit_wave_initialization
+    phase_id: dm_exit_wave
+    operation: 'Difference Map group: initialize the persistent exit-wave stack by
+      extracting patches and applying one real-space object-probe modulation per pattern.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: 6 * N * M_probe * Q if E > 0 else 0
+    depends_on:
+    - E
+    - N
+    - M_probe
+    - Q
+    assumptions:
+    - DM supports a single object slice.
+    - This one-time initialization excludes probe shifting and patch extraction.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/dm.py
+      line: 128
+      symbol: DMReconstructor.compute_updates
+      description: Initializes self.psi in epoch zero by calling calculate_exit_wave_chunk
+        for all chunks.
+    confidence: medium
+    validation_required: true
+  - term_id: lsqml_backward_free_space_fft
+    phase_id: analytical_update
+    operation: 'LSQML group: propagate the reciprocal-space optimized wavefield back
+      to real space on epochs that execute reconstruction updates.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E_active(object) * N * M_probe * T_free * F_fft(Q)
+    depends_on:
+    - E_active(object)
+    - N
+    - M_probe
+    - T_free
+    - F_fft(Q)
+    assumptions:
+    - The expression uses object-active epochs as a proxy for LSQML update epochs.
+    - The default LSQML option may reserve epoch zero for probe-intensity rescaling,
+      so the exact update-epoch count can differ from E.
+    - Additional active groups do not independently repeat this backward propagation.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/lsqml.py
+      line: 371
+      symbol: run_reciprocal_space_step
+      description: Computes a detector-plane update and propagates it backward.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/lsqml.py
+      line: 1604
+      symbol: run_minibatch
+      description: May perform only intensity accumulation in epoch zero instead of
+        reconstruction updates.
+    confidence: low
+    validation_required: true
+  - term_id: lsqml_backward_multislice_fft
+    phase_id: analytical_update
+    operation: 'LSQML group: propagate update wavefields backward through adjacent
+      slices.'
+    quantity_type: algorithmic_flops
+    units: FLOPs
+    expression: E_active(object) * N * M_probe * 2 * (S - 1) * F_fft(Q)
+    depends_on:
+    - E_active(object)
+    - N
+    - M_probe
+    - S
+    - F_fft(Q)
+    assumptions:
+    - Each update epoch traverses all S slices.
+    - The exact LSQML update-epoch count requires resolving its first-epoch intensity-rescaling
+      option.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/lsqml.py
+      line: 440
+      symbol: calculate_update_vectors
+      description: Traverses slices in reverse and propagates chi to the previous
+        slice.
+    confidence: low
+    validation_required: true
+  - term_id: bh_core_update_work
+    phase_id: analytical_update
+    operation: 'BH group: gradient and Hessian-based GD or CG update arithmetic, including
+      additional propagated directional terms.'
+    quantity_type: unknown_runtime_work
+    units: FLOPs
+    expression: null
+    depends_on:
+    - E
+    - N
+    - B
+    - M_probe
+    - Q
+    - G_opt
+    - F_opts
+    assumptions:
+    - The runner selects GD and pad_for_shift=4.
+    - BH rejects multislice objects and multiple OPR modes.
+    - A complete count requires tracing every gradient, Hessian, and line-search helper
+      and the selected interpolation implementation.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/bh.py
+      line: 120
+      symbol: BHReconstructor.compute_updates
+      description: Dispatches different object, probe, and position update problems.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/bh.py
+      line: 293
+      symbol: gradientF
+      description: Performs detector residual work and backward propagation.
+    confidence: high
+    validation_required: true
+  - term_id: ad_backward_executed_work
+    phase_id: autodiff_backward_update
+    operation: 'AD ptychography group: PyTorch autograd backward graph, regularizers,
+      and optimizer steps.'
+    quantity_type: unknown_runtime_work
+    units: FLOPs
+    expression: null
+    depends_on:
+    - E
+    - N
+    - B
+    - S
+    - M_opr
+    - M_probe
+    - Q
+    - G_opt
+    - F_enabled
+    - F_opts
+    assumptions:
+    - Backward work depends on which parameter groups require gradients and on optional
+      neural-prior or regularizer graphs.
+    - No fixed backward-to-forward FLOP multiplier is assumed.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/ad_ptychography.py
+      line: 138
+      symbol: run_minibatch
+      description: Invokes loss.backward(), optional regularizer backward calls, and
+        optimizer steps.
+    confidence: high
+    validation_required: true
+  - term_id: subpixel_shift_work
+    phase_id: forward_model
+    operation: Position-specific subpixel probe or object shifts, including F_opts.pad_for_shift.
+    quantity_type: unknown_runtime_work
+    units: FLOPs
+    expression: null
+    depends_on:
+    - E
+    - N
+    - B
+    - M_probe
+    - H_p
+    - W_p
+    - F_opts
+    assumptions:
+    - The selected patch interpolation method is not an approved independent input.
+    - BH shifts object patches while the default planar model shifts the first probe
+      mode.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 338
+      symbol: shift_unique_probes
+      description: Calls shift_images with interpolation method and padding.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/bh.py
+      line: 62
+      symbol: build_forward_model
+      description: Configures BH to apply subpixel shifts to object patches.
+    confidence: high
+    validation_required: true
+  - term_id: optional_feature_work
+    phase_id: scheduled_constraints
+    operation: Enabled constraints, corrections, regularizers, compact reclustering,
+      deep image priors, or synthesis dictionary learning.
+    quantity_type: unknown_runtime_work
+    units: FLOPs
+    expression: null
+    depends_on:
+    - E
+    - O
+    - P
+    - N
+    - B
+    - mode_batch
+    - G_opt
+    - F_enabled
+    assumptions:
+    - Disabled features contribute zero work.
+    - The structured F_enabled field does not expose all architecture dimensions needed
+      for neural-network or dictionary-solve formulas.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/base.py
+      line: 462
+      symbol: run_post_epoch_hooks
+      description: Dispatches numerous independently scheduled constraints.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/pie.py
+      line: 136
+      symbol: PIEReconstructor.compute_updates
+      description: Synthesis dictionary learning introduces matrix products, a linear
+        solve, and sorting.
+    confidence: high
+    validation_required: true
+  - term_id: fft_implementation_executed_work
+    phase_id: forward_model
+    operation: Implementation-executed PyTorch FFT work, including fft64 casts and
+      backend-specific non-power-of-two algorithms.
+    quantity_type: executed_flops
+    units: FLOPs
+    expression: null
+    depends_on:
+    - H_p
+    - W_p
+    - dtype_compute
+    - fft64
+    - P_fwd
+    assumptions:
+    - The conventional F_fft(Q) term is not an implementation-executed FLOP count.
+    - No hardware peak rate is used as workload FLOPs.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/maths.py
+      line: 392
+      symbol: fft2_precise
+      description: Delegates FFT execution to torch.fft and conditionally performs
+        complex128 casts.
+    confidence: high
+    validation_required: true
+  total_algorithmic_flops_expression: null
+  unresolved_work:
+  - No single total is valid across the alternative PIE, ePIE, rPIE, momentum-rPIE,
+    DM, LSQML, BH, and AD model groups.
+  - The repository does not establish a portable executed-FLOP count for torch.fft;
+    F_fft(Q) is only a conventional theoretical estimate.
+  - Exact pointwise constants for magnitude replacement, noise models, preconditioners,
+    patch placement, OPR synthesis, probe/object updates, optimizer steps, and loss
+    tracking are not fully enumerated.
+  - LSQML can reserve epoch zero for probe-intensity rescaling, so its update-epoch
+    count must be resolved from variant options.
+  - BH GD and CG execute different gradient, Hessian, and history work; the approved
+    vector does not separately encode the BH method.
+  - Momentum-configured rPIE adds optimizer-state and optimizer-update work not determined
+    solely by G_opt.
+  - Automatic differentiation backward work is graph- and active-parameter-dependent
+    and is not modeled using an assumed multiplier.
+  - COMPACT batching invokes ten k-means trials plus convergence-dependent iterations
+    and refinement using X[N,2]; exact setup FLOPs are unresolved.
+  - Subpixel-shift work depends on interpolation method and padded dimensions.
+  - Gaussian blur work depends on the selected image_proc implementation and sigma-derived
+    kernel size.
+  - Optional neural priors and synthesis dictionary learning lack architecture dimensions
+    in the approved input vector.
+  - Distributed aggregate arithmetic and collective reductions depend on R and variant-specific
+    synchronization, which are deployment concerns outside the intrinsic input vector.
+io_model:
+  terms:
+  - term_id: diffraction_hdf5_payload_read
+    phase_id: input_hdf5_read
+    direction: storage_read
+    units: bytes
+    expression: N * D * b_data
+    depends_on:
+    - N
+    - D
+    - b_data
+    data_type: dtype_data
+    assumptions:
+    - Counts the logical uncompressed diffraction-array payload read into memory.
+    - Excludes HDF5 metadata, chunking overhead, filesystem traffic amplification,
+      and compression effects.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 91
+      symbol: load_converted_data
+      description: Reads the complete dp dataset.
+    confidence: high
+    validation_required: false
+  - term_id: parameter_hdf5_payload_read
+    phase_id: input_hdf5_read
+    direction: storage_read
+    units: bytes
+    expression: null
+    depends_on:
+    - N
+    - P
+    data_type: null
+    assumptions:
+    - The file contains the probe, two N-element position arrays, and an object pixel-size
+      attribute.
+    - Probe and position storage dtypes are not represented by an approved model input.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 94
+      symbol: load_converted_data
+      description: Reads probe, pixel-size metadata, and two position arrays.
+    confidence: high
+    validation_required: true
+  - term_id: resident_diffraction_setup_transfer
+    phase_id: diffraction_host_to_device
+    direction: host_to_device
+    units: bytes
+    expression: N * D * b_data if data_on_device is true and computation uses an accelerator;
+      otherwise 0
+    depends_on:
+    - N
+    - D
+    - b_data
+    - data_on_device
+    - device
+    data_type: dtype_data
+    assumptions:
+    - Counts one logical setup copy of the complete diffraction tensor.
+    - Multi-rank task construction forces data_on_device to false.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/io_handles.py
+      line: 38
+      symbol: PtychographyDataset.__init__
+      description: Constructs patterns directly on the accelerator when requested.
+    - source_type: source_code
+      path: src/ptychi/api/task.py
+      line: 160
+      symbol: build_data
+      description: Disables accelerator data residency for multi-process execution.
+    confidence: high
+    validation_required: true
+  - term_id: streamed_diffraction_epoch_transfers
+    phase_id: diffraction_host_to_device
+    direction: host_to_device
+    units: bytes
+    expression: E * N * D * b_data if data_on_device is false and computation uses
+      an accelerator; otherwise 0
+    depends_on:
+    - E
+    - N
+    - D
+    - b_data
+    - data_on_device
+    - device
+    data_type: dtype_data
+    assumptions:
+    - Every pattern is loaded exactly once per epoch.
+    - Batching changes transfer granularity but not aggregate payload.
+    - For DM the full N-pattern tensor is transferred once per epoch because its DataLoader
+      batch contains the full dataset.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/base.py
+      line: 338
+      symbol: prepare_batch_data
+      description: Copies each measured batch to the compute device when needed.
+    - source_type: source_code
+      path: src/ptychi/reconstructors/dm.py
+      line: 84
+      symbol: build_dataloader
+      description: Uses a full-dataset DataLoader batch for DM.
+    confidence: high
+    validation_required: true
+  - term_id: object_result_device_to_host
+    phase_id: result_device_to_host
+    direction: device_to_host
+    units: bytes
+    expression: O * b_c if save_output.save is true and computation uses an accelerator;
+      otherwise 0
+    depends_on:
+    - O
+    - b_c
+    - save_output
+    - device
+    data_type: complex dtype_compute
+    assumptions:
+    - The full S-slice object is returned despite the runner indexing the outer replica/container
+      dimension.
+    - No device-to-host copy is needed for CPU execution.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 391
+      symbol: run_single
+      description: Retrieves object data on CPU before saving.
+    confidence: medium
+    validation_required: true
+  - term_id: probe_result_device_to_host
+    phase_id: result_device_to_host
+    direction: device_to_host
+    units: bytes
+    expression: P * b_c if save_output.save is true and computation uses an accelerator;
+      otherwise 0
+    depends_on:
+    - P
+    - b_c
+    - save_output
+    - device
+    data_type: complex dtype_compute
+    assumptions:
+    - All OPR and incoherent probe modes are copied.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 392
+      symbol: run_single
+      description: Retrieves the probe on CPU before saving.
+    confidence: high
+    validation_required: true
+  - term_id: npz_object_probe_payload_write
+    phase_id: result_npz_write
+    direction: storage_write
+    units: bytes
+    expression: (O + P) * b_c if save_output.save is true; otherwise 0
+    depends_on:
+    - O
+    - P
+    - b_c
+    - save_output
+    data_type: complex dtype_compute
+    assumptions:
+    - Counts only logical object and probe array payloads.
+    - numpy.savez is used rather than savez_compressed.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 398
+      symbol: run_single
+      description: Writes object and probe using numpy.savez.
+    confidence: high
+    validation_required: false
+  - term_id: npz_positions_and_metadata_write
+    phase_id: result_npz_write
+    direction: storage_write
+    units: bytes
+    expression: null
+    depends_on:
+    - N
+    - save_output
+    data_type: null
+    assumptions:
+    - The archive includes two N-element position arrays, path strings, an algorithm
+      string, timing scalars, and ZIP/NPY headers.
+    - Position storage dtype and string lengths are not approved model inputs.
+    evidence:
+    - source_type: source_code
+      path: scripts/run_ptychi.py
+      line: 398
+      symbol: run_single
+      description: Writes positions and metadata in addition to object and probe.
+    confidence: high
+    validation_required: true
+  - term_id: dm_persistent_exit_wave_storage
+    phase_id: dm_exit_wave
+    direction: other
+    units: bytes
+    expression: N * M_probe * Q * b_c
+    depends_on:
+    - N
+    - M_probe
+    - Q
+    - b_c
+    data_type: complex dtype_compute
+    assumptions:
+    - This is persistent device-memory capacity, not storage I/O or host-device transfer.
+    - DM supports M_opr=1 and S=1.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/dm.py
+      line: 128
+      symbol: DMReconstructor.compute_updates
+      description: Allocates self.psi with shape [N,M_probe,H_p,W_p].
+    confidence: high
+    validation_required: false
+  - term_id: device_memory_traffic
+    phase_id: forward_model
+    direction: other
+    units: bytes
+    expression: null
+    depends_on:
+    - E
+    - N
+    - B
+    - S
+    - M_opr
+    - M_probe
+    - H_p
+    - W_p
+    - H_d
+    - W_d
+    - dtype_compute
+    - fft64
+    - F_opts
+    - G_opt
+    - F_enabled
+    data_type: null
+    assumptions:
+    - This term is intentionally separate from storage I/O and host-device transfer.
+    - Kernel fusion, FFT workspace, autograd saved tensors, caches, and allocator
+      behavior determine implementation memory traffic.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/forward_models.py
+      line: 117
+      symbol: PlanarPtychographyForwardModel
+      description: Documents major batch wavefield and object-patch intermediates.
+    confidence: high
+    validation_required: true
+  - term_id: distributed_collective_traffic
+    phase_id: distributed_communication
+    direction: network_send
+    units: bytes
+    expression: null
+    depends_on:
+    - R
+    - O
+    - P
+    - N
+    - G_opt
+    - dtype_compute
+    data_type: null
+    assumptions:
+    - Collective traffic depends on model group, active parameters, backend, and collective
+      algorithm.
+    - R remains a deployment parameter rather than an intrinsic model input.
+    evidence:
+    - source_type: source_code
+      path: src/ptychi/reconstructors/lsqml.py
+      line: 1643
+      symbol: MultiprocessLSQMLReconstructor.run_minibatch
+      description: Synchronizes selected buffers at minibatch or epoch boundaries.
+    confidence: medium
+    validation_required: true
+  total_input_bytes_expression: null
+  total_output_bytes_expression: null
+  unresolved_io:
+  - The exact total input-file bytes require probe and position storage dtypes, HDF5
+    metadata, chunking, and compression information.
+  - The exact NPZ output size requires position dtype, string lengths, archive headers,
+    and confirmation of the object container/slice shape returned by get_data_to_cpu.
+  - Host-device transfer formulas are conditional on excluded platform metadata device
+    and on effective multi-rank residency.
+  - PyTorch may stage, pin, or copy DataLoader batches in ways not represented by
+    logical payload bytes.
+  - FFT workspace, autograd saved tensors, optimizer state, temporary shifts, blur
+    buffers, and device-memory traffic are runtime and backend dependent.
+  - Distributed send and receive bytes require R, backend, collective algorithms,
+    active parameter groups, and variant-specific synchronization behavior.
+  - No storage output is produced by modeling sweeps because they force no-save-output.
+synthetic_input_requirements:
+  can_be_generated: 'yes'
+  requirements:
+  - shape: Diffraction intensity tensor [N,H_d,W_d].
+    dtype: Any numeric dtype accepted by torch.as_tensor and consistent with dtype_data.
+    value_distribution: Finite, nonnegative intensity values; include nonzero signal
+      to avoid degenerate probe rescaling, normalization, and noise-model operations.
+    metadata: Wavelength and free-space propagation distance from P_fwd; valid-pixel
+      mask is optional and otherwise defaults to [H_d,W_d] all true.
+    semantic_constraints: Leading dimension must equal N. Detector dimensions must
+      not exceed the simulated probe-wavefield dimensions when detector cropping is
+      required.
+  - shape: Complex probe tensor [M_opr,M_probe,H_p,W_p].
+    dtype: Complex counterpart of dtype_compute after task conversion.
+    value_distribution: Finite complex illumination with nonzero power; multiple modes
+      should not be identical if mode-specific paths are being validated.
+    metadata: Object pixel size is required by propagator construction; the runner
+      reads it from an HDF5 object attribute.
+    semantic_constraints: For DM and BH, use M_opr=1. Probe power must be nonzero
+      when normalization or power constraints are enabled.
+  - shape: Complex object tensor [S,H_o,W_o].
+    dtype: Complex counterpart of dtype_compute.
+    value_distribution: Finite complex transmission values; a unit-amplitude initial
+      object matches the inspected runner.
+    metadata: For S>1, provide exactly S-1 slice spacings through P_fwd.
+    semantic_constraints: The spatial object extent must contain every H_p-by-W_p
+      patch implied by the scan geometry and interpolation padding.
+  - shape: Position array [N,2] ordered as [y,x].
+    dtype: Finite real values convertible to the compute dtype.
+    value_distribution: Positions should cover the intended object area and include
+      overlap for physically representative ptychography.
+    metadata: Coordinates are in object pixels for the API; the runner converts meter-valued
+      coordinates using object pixel size.
+    semantic_constraints: All requested patches, including F_opts.pad_for_shift, must
+      fit the object representation. COMPACT and UNIFORM batching require nondegenerate
+      spatial geometry.
+  - shape: Optional OPR weights [N,M_opr].
+    dtype: Real compute dtype.
+    value_distribution: Finite weights; LSQML requires nonprincipal-mode weights not
+      all be approximately zero when M_opr>1.
+    metadata: May be omitted for M_opr=1, in which case the task creates [N,1] ones.
+    semantic_constraints: First dimension must equal N and mode dimension must agree
+      with M_opr.
+  unresolved_requirements:
+  - Optional deep-image-prior and synthesis-dictionary features require architecture,
+    latent-input, dictionary-size, and sparsity metadata not represented in the approved
+    vector.
+  - A portable synthetic geometry recipe cannot be derived from N, object shape, and
+    probe shape alone because overlap and scan distribution are excluded.
+  - The precise supported combinations of S, M_opr, M_probe, G_opt, and F_enabled
+    differ by reconstructor and must be validated per model group.
+  - Near-field synthetic data should be generated consistently with wavelength, propagation
+    distance, object pixel size, detector sampling, and fft_shift settings; detector
+    pixel size wiring requires human review.
+  - Synthetic input is characterized but was not created.
+validation:
+  formula_symbols_resolved: true
+  units_consistent: true
+  double_counting_checked: true
+  issues:
+  - severity: warning
+    code: NO_CROSS_VARIANT_TOTAL
+    message: Alternative reconstructors execute different update graphs, so no single
+      total FLOP expression is reported.
+    related_ids:
+    - pie_family_backward_free_space_fft
+    - dm_backward_free_space_fft
+    - lsqml_backward_free_space_fft
+    - bh_core_update_work
+    - ad_backward_executed_work
+  - severity: warning
+    code: THEORETICAL_FFT_CONVENTION
+    message: F_fft(Q)=5*Q*log2(Q) is a conventional theoretical estimate, not repository-measured
+      or implementation-executed FLOPs.
+    related_ids:
+    - conventional_fft_flops
+    - fft_implementation_executed_work
+  - severity: warning
+    code: OPTIONAL_FEATURE_DIMENSIONS_MISSING
+    message: F_enabled identifies optional features but does not provide all dimensions
+      needed for neural-prior, dictionary-learning, or feature-specific formulas.
+    related_ids:
+    - optional_feature_schedule
+    - optional_feature_work
+  - severity: warning
+    code: STORAGE_DTYPES_PARTIAL
+    message: dtype_data resolves diffraction bytes, but probe and position storage
+      dtypes are not approved inputs; total HDF5 and NPZ bytes remain unresolved.
+    related_ids:
+    - parameter_hdf5_payload_read
+    - npz_positions_and_metadata_write
+  - severity: warning
+    code: PLATFORM_CONDITIONAL_TRANSFERS
+    message: Host-device transfer terms are conditional on device metadata, which
+      is deliberately excluded from the intrinsic model-input vector.
+    related_ids:
+    - resident_diffraction_setup_transfer
+    - streamed_diffraction_epoch_transfers
+    - object_result_device_to_host
+    - probe_result_device_to_host
+  - severity: warning
+    code: VARIANT_APPLICABILITY
+    message: DM ignores B and uses C_dm; runner PIE forces B=1; DM and BH reject multislice
+      objects and multiple OPR modes; other feature support is variant dependent.
+    related_ids:
+    - batch_size
+    - dm_chunk_length
+    - object_shape
+    - probe_shape
+  - severity: info
+    code: LITERATURE_SECONDARY_ONLY
+    message: Repository behavior was derived from source code. The general description
+      of a frame stack, measurement geometry, and iterative phase retrieval is consistent
+      with source:108600537.pdf:p0002:parent001:child001, 108600537.pdf page 2, but
+      this layout-sensitive PDF extraction requires human verification and is not
+      implementation evidence.
+    related_ids: []
+review:
+  status: awaiting_human_review
+  requested_decisions:
+  - Confirm whether the formulas should target only the scripts/run_ptychi.py benchmark
+    profile or retain the broader package-API boundary used here.
+  - Approve the separate model groups for PIE, ePIE, rPIE, momentum-configured rPIE,
+    DM, LSQML, BH, and AD ptychography while preserving the same approved input vector.
+  - Confirm use of the conventional theoretical complex-FFT estimate F_fft(Q)=5*Q*log2(Q),
+    or require FFT counts only without conversion to FLOPs.
+  - Confirm whether the LSQML first epoch uses probe-intensity rescaling in the intended
+    profile; this changes the number of epochs executing reconstruction updates.
+  - Provide or exclude the BH GD-versus-CG method and optimizer identities if exact
+    variant update and optimizer-state formulas are required.
+  - Decide whether optional features need feature-specific submodels and additional
+    reviewed architecture dimensions; otherwise their work remains unresolved.
+  - Confirm whether end-to-end storage I/O and output saving are in scope. Exact totals
+    require probe and position storage dtypes and archive metadata.
+  - Validate the assumption that the saved object payload contains all S slices after
+    get_data_to_cpu("object", as_numpy=True)[0].
+  - Confirm that host-device transfer formulas may remain conditional on excluded
+    platform metadata device and R.
+  - 'Confirm the variant restrictions: DM ignores ordinary B and uses C_dm, runner
+    PIE forces B=1, and DM/BH require S=1 and M_opr=1.'
+  - Approve retaining scan-geometry-dependent COMPACT clustering as unresolved because
+    exact X[N,2] is excluded from the model-input vector.
+  reviewer: null
+  reviewed_at: null
+  decisions: []
+  notes: This first characterization remains awaiting_human_review. No measured performance,
+    power, energy, or hardware peak FLOP rate is reported.
