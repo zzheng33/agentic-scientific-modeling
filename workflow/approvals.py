@@ -42,6 +42,26 @@ def validate_review_file(
     if review.edited_artifact is not None:
         store.verify_edited_file(review.edited_artifact.path, review.edited_artifact.sha256)
 
+    if (
+        expected_artifact.stage == "measurement_validation_review"
+        and review.decision in {"approve", "edit"}
+    ):
+        candidate_path = (
+            store.verify_edited_file(
+                review.edited_artifact.path, review.edited_artifact.sha256
+            )
+            if review.edited_artifact is not None
+            else store.verify_artifact(review.artifact)
+        )
+        candidate = yaml.safe_load(Path(candidate_path).read_text(encoding="utf-8"))
+        if not bool(
+            (candidate or {}).get("validation", {}).get("ready_for_modeling", False)
+        ):
+            raise ValueError(
+                "Cannot approve measurements: validation.ready_for_modeling is false; "
+                "rerun the failed benchmark or reject this review"
+            )
+
     normalized = review.model_dump(mode="json")
     normalized["accepted_at"] = datetime.now(timezone.utc).isoformat()
     return normalized

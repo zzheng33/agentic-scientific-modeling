@@ -1,0 +1,22 @@
+review:
+  workflow_id: ptychi_001
+  stage: measurement_validation_review
+  status: completed
+  decision: approve
+  artifact:
+    artifact_type: measurement_validation
+    stage: measurement_validation_review
+    version: 3
+    path: artifacts/measurement_validation_review/measurement_validation.v003.yaml
+    sha256: 887a985077ba9063112ddf16082ee076c4b0a20218b328153320bbded5ac1ae8
+  edited_artifact: null
+  feedback: null
+  reviewer: null
+  reviewed_at: null
+  accepted_at: null
+  provenance:
+    source_revision: 34db7f3226927c23385d7b816bc213eba02b3c60
+    generated_at: '2026-08-18T19:57:04.016582Z'
+    agent_version: data-validation-0.1
+    prompt_version: null
+    tool_version: measurement-parser-0.1

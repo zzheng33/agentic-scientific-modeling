@@ -1,0 +1,18 @@
+{
+  "all_successful": true,
+  "complete": true,
+  "completed_at": "2026-08-18T19:49:49.848911Z",
+  "dataset_manifest_path": "datasets/dataset_manifest.json",
+  "dataset_manifest_sha256": "36e52e2c0d23672ab2763218a768a90c3541f2b02c26dc11d8b87851a84b131b",
+  "expected_run_count": 1,
+  "failed_run_count": 0,
+  "measurements_path": "results/measurements.csv",
+  "measurements_sha256": "c557ed6cb63d9078249c07baf38d5b75cc1e12c69d10bcc8283335a8f5c46b42",
+  "plan_id": "pty-chi-gh200-reduced-pilot-2026-08-18-v1",
+  "recorded_run_count": 1,
+  "run_results": [
+    "results/runs/run-00001/result.json"
+  ],
+  "schema_version": "1.0",
+  "successful_run_count": 1
+}

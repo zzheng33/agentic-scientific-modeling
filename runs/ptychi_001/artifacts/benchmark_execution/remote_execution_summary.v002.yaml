@@ -1,0 +1,81 @@
+schema_version: '0.2'
+status: completed_with_failures
+execution_backend: ssh_scp_cobalt_multi_machine
+executions:
+- schema_version: '1.0'
+  workflow_id: ptychi_001
+  archive: /Users/zhongzheng/Desktop/workspace/agentic-scientific-modeling/runs/ptychi_001/remote_executor/benchmark-v002-gh200.tar.gz
+  archive_sha256: 6632cce8d24b9fe9b0049bd640c1b0a650c259ea1df76da0aed4e517b5d5b276
+  archive_bytes: 732971
+  remote_bundle: /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200
+  run_count: 1
+  dataset_script_sha256: f92ec287243bb945c56032d3e4920a7090b1e86abaede6717aa8da03d83f28ae
+  benchmark_script_sha256: c8cfef34fbebb61baf4e4ad3576236badf420f73e8475cf5bdd34cec6a801d6f
+  application_uploaded: true
+  remote:
+    host: zhong.zheng@login.jlse.anl.gov
+    remote_runs_root: /home/zhong.zheng/agentic-runs
+    remote_application_path: /home/zhong.zheng/pty-chi
+    accelerator: GH200
+    queue: gpu_gh200
+    nodes: 1
+    walltime_minutes: 30
+    poll_interval_s: 15
+    poll_timeout_s: 3600
+    qsub_command: qsub
+    qstat_command: qstat
+    ssh_duo_choice: '1'
+    dataset_python: /home/zhong.zheng/venv/bin/python
+    module_path: /soft/modulefiles
+    modules:
+    - cuda/12.9.1
+    - conda/nvidia/suse15.6/2025.01-11
+    conda_env: ptychopinn_torch_arm
+    remote_monitor_script: /home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py
+    device: cuda
+    vendor: nvidia
+    devices: '0'
+    power_interval_s: 0.2
+    continue_on_error: true
+    upload_application: true
+    ssh_password_configured: true
+  dataset_prepared_before_submission: true
+  job_id: '993140'
+  all_successful: true
+  complete: true
+  completed_at: '2026-08-18T19:49:49.848911Z'
+  dataset_manifest_path: datasets/dataset_manifest.json
+  dataset_manifest_sha256: 36e52e2c0d23672ab2763218a768a90c3541f2b02c26dc11d8b87851a84b131b
+  expected_run_count: 1
+  failed_run_count: 0
+  measurements_path: results/measurements.csv
+  measurements_sha256: 50f451a804b12880026b36ac94659d53fb9321f62cb59e3df82ad6c5d7b1c060
+  plan_id: pty-chi-gh200-reduced-pilot-2026-08-18-v1
+  recorded_run_count: 1
+  run_results:
+  - results/runs/run-00001/result.json
+  successful_run_count: 1
+  execution_backend: ssh_scp_cobalt
+  local_results: /Users/zhongzheng/Desktop/workspace/agentic-scientific-modeling/runs/ptychi_001/remote_results/v002/GH200/job-993140/results
+  completion_manifest_sha256: df214292c14fe2d606152ebf6832bfecffab67bc25dacd9af763bba96c54e930
+  matrix_artifact:
+    artifact_type: experiment_matrix_gh200
+    stage: benchmark_execution
+    version: 2
+    path: artifacts/benchmark_execution/experiment_matrix_gh200.v002.csv
+    sha256: 75032d4a68f1bb8521a4e5bb52ab3dbd8ac9cebdb02bfb4daa7f724c7b9517fd
+approved_benchmark_manifest:
+  artifact_type: benchmark_run_manifest
+  stage: benchmark_run_review
+  version: 2
+  path: artifacts/benchmark_run_review/benchmark_run_manifest.v002.yaml
+  sha256: 5315e9f4aad975b8e3b919a2cfaa0fe521cfdfb503807ace120a73bf4daab98b
+planned_runs: 1
+benchmark_revision: 2
+execution_revision: 2
+measurements_artifact:
+  artifact_type: raw_measurements
+  stage: benchmark_execution
+  version: 2
+  path: artifacts/benchmark_execution/raw_measurements.v002.csv
+  sha256: 50f451a804b12880026b36ac94659d53fb9321f62cb59e3df82ad6c5d7b1c060

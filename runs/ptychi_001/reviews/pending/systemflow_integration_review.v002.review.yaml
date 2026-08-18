@@ -1,0 +1,22 @@
+review:
+  workflow_id: ptychi_001
+  stage: systemflow_integration_review
+  status: awaiting_review
+  decision: null
+  artifact:
+    artifact_type: systemflow_integration_report
+    stage: systemflow_integration_review
+    version: 2
+    path: artifacts/systemflow_integration_review/systemflow_integration_report.v002.yaml
+    sha256: 3079359287735f6911670187797f513030f4b6f401d5c4e0c1648bf866907409
+  edited_artifact: null
+  feedback: null
+  reviewer: null
+  reviewed_at: null
+  accepted_at: null
+  provenance:
+    source_revision: 34db7f3226927c23385d7b816bc213eba02b3c60
+    generated_at: '2026-08-18T20:01:52.790662Z'
+    agent_version: systemflow-integration-0.1
+    prompt_version: null
+    tool_version: systemflow-adapter-0.1

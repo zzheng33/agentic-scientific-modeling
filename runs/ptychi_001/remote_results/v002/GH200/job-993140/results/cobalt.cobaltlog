@@ -1,0 +1,24 @@
+Jobid: 993140
+qsub -n 1 -t 30 -q gpu_gh200 --mode script -O /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/cobalt ./job.sh
+Tue Aug 18 19:49:06 2026 +0000 (UTC) submitted with cwd set to: /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200
+Tue Aug 18 19:49:30 2026 +0000 (UTC) 
+Tue Aug 18 19:49:30 2026 +0000 (UTC) Command: '/usr/bin/ssh' 'grace00' '/usr/libexec/cobalt/cobalt-launcher.py' '--nf' '/var/tmp/cobalt.993140' '--jobid' '993140' '--cwd' '/home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200' '--env' 'COBALT_JOBID=993140' '/home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/./job.sh'
+Tue Aug 18 19:49:30 2026 +0000 (UTC) 
+Tue Aug 18 19:49:30 2026 +0000 (UTC) Environment:
+Tue Aug 18 19:49:30 2026 +0000 (UTC) SHELL=/bin/bash
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_NODEFILE=/tmp/tmpjCnh0Q
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_PARTNAME=grace00
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_JOBID=993140
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_STARTTIME=1787082556
+Tue Aug 18 19:49:30 2026 +0000 (UTC) LOGNAME=zhong.zheng
+Tue Aug 18 19:49:30 2026 +0000 (UTC) USER=zhong.zheng
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_ENDTIME=1787084356
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_PARTSIZE=1
+Tue Aug 18 19:49:30 2026 +0000 (UTC) HOME=/home/zhong.zheng
+Tue Aug 18 19:49:30 2026 +0000 (UTC) COBALT_JOBSIZE=1
+Tue Aug 18 19:49:30 2026 +0000 (UTC) 
+Tue Aug 18 19:49:30 2026 +0000 (UTC) Info: stdin received from /dev/null
+Tue Aug 18 19:49:30 2026 +0000 (UTC) Info: stdout sent to /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/cobalt.output
+Tue Aug 18 19:49:30 2026 +0000 (UTC) Info: stderr sent to /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/cobalt.error
+Tue Aug 18 19:49:30 2026 +0000 (UTC) 
+Tue Aug 18 19:50:01 2026 +0000 (UTC) Info: task completed normally with an exit code of 0; initiating job cleanup and removal

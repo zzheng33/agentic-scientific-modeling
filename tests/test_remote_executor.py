@@ -16,6 +16,7 @@ from agents.remote_executor.runner import (
     RemoteExecutorConfig,
     _build_bundle,
     _dataset_preparation_script,
+    _job_script,
 )
 from workflow.artifacts import ArtifactStore
 
@@ -167,6 +168,12 @@ echo power.csv result.json completion_manifest.json
             application = root / "application"
             application.mkdir()
             (application / "main.py").write_text("print('ok')\n")
+            source_models = application / "src" / "package" / "models"
+            source_models.mkdir(parents=True)
+            (source_models / "network.py").write_text("MODEL = 'source'\n")
+            cache_models = application / "models"
+            cache_models.mkdir()
+            (cache_models / "weights.bin").write_bytes(b"cache")
             dataset = root / "dataset.sh"
             dataset.write_text("#!/bin/bash\n")
             benchmark = root / "benchmark.sh"
@@ -192,6 +199,13 @@ echo power.csv result.json completion_manifest.json
             self.assertIn("benchmark-v001-gh200/benchmark_job.sh", names)
             self.assertIn("benchmark-v001-gh200/prepare_dataset.sh", names)
             self.assertIn("benchmark-v001-gh200/application/main.py", names)
+            self.assertIn(
+                "benchmark-v001-gh200/application/src/package/models/network.py",
+                names,
+            )
+            self.assertNotIn(
+                "benchmark-v001-gh200/application/models/weights.bin", names
+            )
             self.assertNotIn("benchmark-v001-gh200/remote_worker.py", names)
             self.assertEqual(summary["run_count"], 1)
             self.assertNotIn("ssh_password", summary["remote"])
@@ -201,6 +215,7 @@ echo power.csv result.json completion_manifest.json
             host="user@login.example.org",
             remote_runs_root="/home/user/runs",
             remote_application_path="/home/user/application",
+            dataset_python="/home/user/miniforge3/bin/python",
         )
         script = _dataset_preparation_script(
             config, "/home/user/runs/workflow/benchmark-v001-gh200"
@@ -209,6 +224,25 @@ echo power.csv result.json completion_manifest.json
         self.assertIn('bash "$BUNDLE_ROOT/dataset_generation.sh"', script)
         self.assertIn('test -s "$BUNDLE_ROOT/datasets/dataset_manifest.json"', script)
         self.assertIn("json.load", script)
+        self.assertIn("PYTHON_BIN=/home/user/miniforge3/bin/python", script)
+        self.assertNotIn("module load", script)
+        self.assertNotIn("conda activate", script)
+
+    def test_job_wrapper_exports_bundle_root_to_reviewed_benchmark(self) -> None:
+        config = RemoteExecutorConfig(
+            host="user@login.example.org",
+            remote_runs_root="/home/user/runs",
+            remote_application_path="/home/user/application",
+        )
+        script = _job_script(
+            config, "/home/user/runs/workflow/benchmark-v001-gh200"
+        )
+
+        self.assertIn("export BUNDLE_ROOT", script)
+        self.assertLess(
+            script.index("export BUNDLE_ROOT"),
+            script.index('bash "$BUNDLE_ROOT/benchmark_job.sh"'),
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,8 @@
+schema_version: '0.1'
+purpose: pipeline_validation_only
+scientific_use: false
+source_measurements: artifacts/benchmark_execution/raw_measurements.v002.csv
+source_run_id: run-00001
+fixture_run_count: 5
+transformation: Exact measurement values duplicated; only run_id and repetition changed.
+warning: Do not use this fixture model for scientific inference or performance prediction.

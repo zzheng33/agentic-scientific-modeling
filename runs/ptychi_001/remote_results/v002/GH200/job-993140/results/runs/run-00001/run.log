@@ -1,0 +1,18 @@
+application_command: /home/zhong.zheng/.conda/envs/ptychopinn_torch_arm/bin/python /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/ptychi_measurement_harness.py --application-root /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/application --dataset-stem /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/datasets/p001-n64-d64-o128-p64-seed20260818-v1 --algorithm pie --epochs 2 --batch-size 1 --dm-chunk-length 1 --device cuda --output /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/outputs/run-00001.npz --seed 20260818 --data-residency false --object-height 128 --object-width 128
+power_monitor_command: /home/zhong.zheng/.conda/envs/ptychopinn_torch_arm/bin/python /home/zhong.zheng/PtychoPINN/scripts/monitor_gpu_power.py --vendor nvidia --interval 0.2 --output /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/runs/run-00001/power.csv --label run-00001 --devices 0
+device_name: NVIDIA GH200 480GB
+data shape: (64, 64, 64), dtype: float32
+probe shape: (1, 1, 64, 64), dtype: torch.complex64
+io_load_time_s: 0.140778
+object initial shape: (1, 128, 128)
+effective_batch_size: 1
+setup_time_s: 0.005173
+/home/zhong.zheng/.conda/envs/ptychopinn_torch_arm/lib/python3.10/site-packages/torch/utils/_device.py:122: UserWarning: Converting a tensor with requires_grad=True to a scalar may lead to unexpected behavior.
+Consider using tensor.detach() first. (Triggered internally at /pytorch/torch/csrc/autograd/generated/python_variable_methods.cpp:838.)
+  return func(*args, **kwargs)
+task_setup_time_s: 0.118490
+reconstruction_run_time_s: 1.043071
+save_time_s: 0.003230
+total_time_s: 1.311746
+Saved reconstruction: /home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/outputs/run-00001.npz
+SYSTEMFLOW_RESULT_JSON:{"device_name": "NVIDIA GH200 480GB", "effective_batch_size": 1, "effective_dm_chunk_length": 1, "output_path": "/home/zhong.zheng/agentic-runs/ptychi_001/benchmark-v002-gh200/results/outputs/run-00001.npz", "peak_accelerator_memory_allocated_bytes": 16754688, "peak_accelerator_memory_reserved_bytes": 25165824}

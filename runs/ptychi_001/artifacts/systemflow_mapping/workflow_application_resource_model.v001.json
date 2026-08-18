@@ -1,0 +1,191 @@
+{
+  "coefficients_artifact": {
+    "artifact_type": "resource_model_coefficients",
+    "path": "artifacts/resource_model_review/resource_model_coefficients.v001.csv",
+    "sha256": "38dfbbd6773942f411fd550a8bc65f587f2d7baf33d4a6d818787e461bceef91",
+    "stage": "resource_model_review",
+    "version": 1
+  },
+  "feature_definitions": {
+    "batch_mpixels": "min(batch_size, scan_point_count) * detector_shape[0] * detector_shape[1] / 1e6",
+    "compute_tpixel_epochs": "scan_point_count * detector_shape[0] * detector_shape[1] * num_epochs / 1e12",
+    "epoch_batches_k": "num_epochs * ceil(scan_point_count / min(batch_size, scan_point_count)) / 1e3",
+    "input_gpixels": "scan_point_count * detector_shape[0] * detector_shape[1] / 1e9"
+  },
+  "group_aliases": {},
+  "grouping": [
+    "accelerator",
+    "algorithm"
+  ],
+  "groups": [
+    {
+      "accelerator": "GH200",
+      "algorithm": "pie",
+      "targets": {
+        "avg_power_w": {
+          "feature_means": {
+            "batch_mpixels": 0.004096,
+            "compute_tpixel_epochs": 5.24288e-07,
+            "epoch_batches_k": 0.128,
+            "input_gpixels": 0.000262144
+          },
+          "feature_scales": {
+            "batch_mpixels": 1.0,
+            "compute_tpixel_epochs": 1.0,
+            "epoch_batches_k": 1.0,
+            "input_gpixels": 1.0
+          },
+          "intercept": 95.9240806,
+          "n": 5,
+          "r2": 1.0,
+          "rmse": 0.0,
+          "standardized_coefficients": {
+            "batch_mpixels": 0.0,
+            "compute_tpixel_epochs": 0.0,
+            "epoch_batches_k": 0.0,
+            "input_gpixels": 0.0
+          }
+        },
+        "energy_j": {
+          "feature_means": {
+            "batch_mpixels": 0.004096,
+            "compute_tpixel_epochs": 5.24288e-07,
+            "epoch_batches_k": 0.128,
+            "input_gpixels": 0.000262144
+          },
+          "feature_scales": {
+            "batch_mpixels": 1.0,
+            "compute_tpixel_epochs": 1.0,
+            "epoch_batches_k": 1.0,
+            "input_gpixels": 1.0
+          },
+          "intercept": 845.0911499999999,
+          "n": 5,
+          "r2": 1.0,
+          "rmse": 1.1368683772161603e-13,
+          "standardized_coefficients": {
+            "batch_mpixels": 0.0,
+            "compute_tpixel_epochs": 0.0,
+            "epoch_batches_k": 0.0,
+            "input_gpixels": 0.0
+          }
+        },
+        "latency_s": {
+          "feature_means": {
+            "batch_mpixels": 0.004096,
+            "compute_tpixel_epochs": 5.24288e-07,
+            "epoch_batches_k": 0.128,
+            "input_gpixels": 0.000262144
+          },
+          "feature_scales": {
+            "batch_mpixels": 1.0,
+            "compute_tpixel_epochs": 1.0,
+            "epoch_batches_k": 1.0,
+            "input_gpixels": 1.0
+          },
+          "intercept": 1.3117460000000003,
+          "n": 5,
+          "r2": 1.0,
+          "rmse": 2.220446049250313e-16,
+          "standardized_coefficients": {
+            "batch_mpixels": 0.0,
+            "compute_tpixel_epochs": 0.0,
+            "epoch_batches_k": 0.0,
+            "input_gpixels": 0.0
+          }
+        },
+        "peak_memory_mib": {
+          "feature_means": {
+            "batch_mpixels": 0.004096,
+            "compute_tpixel_epochs": 5.24288e-07,
+            "epoch_batches_k": 0.128,
+            "input_gpixels": 0.000262144
+          },
+          "feature_scales": {
+            "batch_mpixels": 1.0,
+            "compute_tpixel_epochs": 1.0,
+            "epoch_batches_k": 1.0,
+            "input_gpixels": 1.0
+          },
+          "intercept": 24.0,
+          "n": 5,
+          "r2": 1.0,
+          "rmse": 0.0,
+          "standardized_coefficients": {
+            "batch_mpixels": 0.0,
+            "compute_tpixel_epochs": 0.0,
+            "epoch_batches_k": 0.0,
+            "input_gpixels": 0.0
+          }
+        },
+        "throughput_per_s": {
+          "feature_means": {
+            "batch_mpixels": 0.004096,
+            "compute_tpixel_epochs": 5.24288e-07,
+            "epoch_batches_k": 0.128,
+            "input_gpixels": 0.000262144
+          },
+          "feature_scales": {
+            "batch_mpixels": 1.0,
+            "compute_tpixel_epochs": 1.0,
+            "epoch_batches_k": 1.0,
+            "input_gpixels": 1.0
+          },
+          "intercept": 48.78993340000001,
+          "n": 5,
+          "r2": 1.0,
+          "rmse": 7.105427357601002e-15,
+          "standardized_coefficients": {
+            "batch_mpixels": 0.0,
+            "compute_tpixel_epochs": 0.0,
+            "epoch_batches_k": 0.0,
+            "input_gpixels": 0.0
+          }
+        }
+      }
+    }
+  ],
+  "json_artifact": {
+    "artifact_type": "resource_model_definition",
+    "path": "artifacts/resource_model_review/resource_model_definition.v001.json",
+    "sha256": "f18095d81d2c66ad43f34c2d1418c8f2be81c95283ccca055cca51491dceccd2",
+    "stage": "resource_model_review",
+    "version": 1
+  },
+  "model_inputs": [
+    "scan_point_count",
+    "detector_shape",
+    "num_epochs",
+    "batch_size"
+  ],
+  "prediction_policy": "warn outside supported_domain; clamp predictions to positive epsilon",
+  "schema_version": "systemflow-application-resource-model-0.1",
+  "status": "approved_model_mapped_for_systemflow",
+  "supported_domain": {
+    "batch_size": [
+      1,
+      1
+    ],
+    "detector_height": [
+      64,
+      64
+    ],
+    "detector_width": [
+      64,
+      64
+    ],
+    "num_epochs": [
+      2,
+      2
+    ],
+    "scan_point_count": [
+      64,
+      64
+    ]
+  },
+  "systemflow_contract": {
+    "loader": "systemflow.application_models.WorkflowApplicationResourceModel",
+    "mapping_schema": "systemflow-application-mapping-0.1",
+    "mutation": "systemflow.application_models.ScientificApplicationModel"
+  }
+}

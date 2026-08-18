@@ -1,0 +1,46 @@
+schema_version: '0.1'
+status: awaiting_human_review
+expected_runs: 5
+observed_runs: 5
+unique_runs: 5
+usable_runs: 5
+failed_or_incomplete_runs: 0
+duplicate_run_ids: []
+missing_run_count: 0
+suspicious_run_ids: []
+run_decisions:
+- run_id: pipeline-fixture-00001
+  decision: include
+  reason: complete_and_valid
+- run_id: pipeline-fixture-00002
+  decision: include
+  reason: complete_and_valid
+- run_id: pipeline-fixture-00003
+  decision: include
+  reason: complete_and_valid
+- run_id: pipeline-fixture-00004
+  decision: include
+  reason: complete_and_valid
+- run_id: pipeline-fixture-00005
+  decision: include
+  reason: complete_and_valid
+validation:
+  ready_for_modeling: true
+  power_required: true
+  energy_method: trapezoidal integration of summed GPU power over Time(S)
+pipeline_fixture:
+  enabled: true
+  scientific_use: false
+  manifest_artifact:
+    artifact_type: pipeline_fixture_manifest
+    stage: benchmark_execution
+    version: 3
+    path: artifacts/benchmark_execution/pipeline_fixture_manifest.v003.yaml
+    sha256: ebfc31fdf8f33f31cc31d4eb47df226eced028a36b763d7c414eb4b1a23f7f03
+  warning: Five rows duplicate one real run and are only for pipeline validation.
+extracted_runs_artifact:
+  artifact_type: modeling_runs_extracted
+  stage: measurement_validation_review
+  version: 3
+  path: artifacts/measurement_validation_review/modeling_runs_extracted.v003.csv
+  sha256: b5f5b261e6d463ffacdca0165a2bd9d8b05eec76c3184c065e04f6d733230f0f

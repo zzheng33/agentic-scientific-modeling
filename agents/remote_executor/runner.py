@@ -39,6 +39,7 @@ class RemoteExecutorConfig:
     qstat_command: str = "qstat"
     ssh_password: str = ""
     ssh_duo_choice: str = ""
+    dataset_python: str = "python3"
     module_path: str = "/soft/modulefiles"
     modules: tuple[str, ...] = (
         "cuda/12.9.1",
@@ -81,6 +82,7 @@ class RemoteExecutorConfig:
         with Path(path).expanduser().resolve(strict=True).open("rb") as stream:
             document = tomllib.load(stream)
         configured = document.get("remote_executor", {})
+        dataset_runtime = document.get("dataset_runtime", {})
         machines = document.get("machine", [])
         if not bool(configured.get("enabled", False)):
             raise ValueError("Set remote_executor.enabled=true before remote execution")
@@ -106,6 +108,9 @@ class RemoteExecutorConfig:
                 qstat_command=str(configured.get("qstat_command", "qstat")).strip(),
                 ssh_password=str(configured.get("ssh_password", "")),
                 ssh_duo_choice=str(configured.get("ssh_duo_choice", "")).strip(),
+                dataset_python=str(
+                    dataset_runtime.get("python", "python3")
+                ).strip(),
                 module_path=str(machine.get("module_path", "/soft/modulefiles")),
                 modules=tuple(str(item) for item in machine.get("modules", [])),
                 conda_env=str(machine.get("conda_env", "")),
@@ -153,6 +158,10 @@ class RemoteExecutorConfig:
             raise ValueError(
                 "remote_executor.ssh_duo_choice must be a positive option number "
                 "when ssh_password is configured"
+            )
+        if not _COMMAND.fullmatch(self.dataset_python):
+            raise ValueError(
+                "dataset_runtime.python must be a safe executable name or path"
             )
         if not self.modules or any(not _COMMAND.fullmatch(item) for item in self.modules):
             raise ValueError("machine.modules must contain safe module names")
@@ -332,6 +341,7 @@ def _job_script(config: RemoteExecutorConfig, remote_bundle: str) -> str:
     return f"""#!/bin/bash
 set -euo pipefail
 BUNDLE_ROOT={values['bundle']}
+export BUNDLE_ROOT
 MODULE_PATH={values['module_path']}
 export CONDA_ENV={values['conda_env']}
 
@@ -370,46 +380,26 @@ bash "$BUNDLE_ROOT/benchmark_job.sh"
 def _dataset_preparation_script(
     config: RemoteExecutorConfig, remote_bundle: str
 ) -> str:
-    """Run dataset generation on the remote login host before scheduler submission."""
+    """Run dataset generation with its login-node runtime before qsub."""
     values = {
         "bundle": shlex.quote(remote_bundle),
-        "module_path": shlex.quote(config.module_path),
-        "conda_env": shlex.quote(config.conda_env),
+        "python": shlex.quote(config.dataset_python),
         "app": shlex.quote(
             remote_bundle + "/application"
             if config.upload_application
             else config.remote_application_path
         ),
     }
-    module_loads = "\n".join(
-        f"module load {shlex.quote(module)}" for module in config.modules
-    )
     return f"""#!/bin/bash
 set -euo pipefail
 BUNDLE_ROOT={values['bundle']}
-MODULE_PATH={values['module_path']}
-export CONDA_ENV={values['conda_env']}
-
-set +u
-if ! command -v module >/dev/null 2>&1 && [[ -f /etc/profile.d/modules.sh ]]; then
-  source /etc/profile.d/modules.sh
-fi
-module use "$MODULE_PATH"
-{module_loads}
-hash -r
-MODULE_PYTHON="$(command -v python)"
-CONDA_BASE="$(dirname "$(dirname "$MODULE_PYTHON")")"
-source "$CONDA_BASE/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
-hash -r
-set -u
-
-PYTHON_BIN="${{PYTHON_BIN:-$(command -v python)}}"
+PYTHON_BIN={values['python']}
 APP_ROOT={values['app']}
 export PYTHONPATH="$APP_ROOT/src${{PYTHONPATH:+:$PYTHONPATH}}"
 export APPLICATION_ROOT="$APP_ROOT"
 export BUNDLE_ROOT PYTHON_BIN
 cd "$BUNDLE_ROOT"
+"$PYTHON_BIN" -c 'import h5py,numpy; print("dataset runtime:", numpy.__version__, h5py.__version__)'
 bash "$BUNDLE_ROOT/dataset_generation.sh"
 test -s "$BUNDLE_ROOT/datasets/dataset_manifest.json"
 "$PYTHON_BIN" -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' \
@@ -442,10 +432,20 @@ def _build_bundle(
         (bundle / "dataset_generation.sh").chmod(0o755)
         (bundle / "benchmark_job.sh").chmod(0o755)
         if config.upload_application:
-            ignored = shutil.ignore_patterns(
+            application_root = application_path.resolve()
+            generally_ignored = shutil.ignore_patterns(
                 ".git", ".venv", "venv", "__pycache__", "*.pyc", ".env*",
-                "*.pem", "*.key", "node_modules", "build", "dist", "models",
+                "*.pem", "*.key", "node_modules", "build", "dist",
             )
+
+            def ignored(directory: str, names: list[str]) -> set[str]:
+                excluded = set(generally_ignored(directory, names))
+                # Ignore only a repository-root model cache. Source packages may
+                # legitimately contain directories named `models`.
+                if Path(directory).resolve() == application_root:
+                    excluded.update(name for name in names if name == "models")
+                return excluded
+
             shutil.copytree(
                 application_path,
                 bundle / "application",
@@ -539,6 +539,14 @@ def execute_remote_benchmark(
     )
     _run(_ssh(config, options, prepare_dataset))
     summary["dataset_prepared_before_submission"] = True
+    rotate_results = (
+        f"cd {shlex.quote(remote_bundle)} && "
+        "mkdir -p attempts && "
+        "if [[ -d results ]]; then "
+        "mv results \"attempts/results-$(date -u +%Y%m%dT%H%M%SZ)-$$\"; "
+        "fi && mkdir -p results"
+    )
+    _run(_ssh(config, options, rotate_results))
     submit = (
         f"cd {shlex.quote(remote_bundle)} && "
         f"{shlex.quote(config.qsub_command)} -n {config.nodes} "
@@ -568,7 +576,13 @@ def execute_remote_benchmark(
             f"Remote job {job_id} exceeded poll_timeout_s={config.poll_timeout_s}"
         )
 
-    local_remote_root = root / "remote_results" / f"v{version:03d}" / config.accelerator
+    local_remote_root = (
+        root
+        / "remote_results"
+        / f"v{version:03d}"
+        / config.accelerator
+        / f"job-{job_id}"
+    )
     if local_remote_root.exists():
         raise ValueError(f"Remote result destination already exists: {local_remote_root}")
     local_remote_root.mkdir(parents=True)
@@ -587,7 +601,14 @@ def execute_remote_benchmark(
             f"Remote job {job_id} ended without completion_manifest.json and measurements.csv"
         )
     completion = json.loads(completion_path.read_text())
-    if int(completion.get("planned_runs", -1)) != int(summary["run_count"]):
+    expected_runs = completion.get(
+        "expected_run_count", completion.get("planned_runs", -1)
+    )
+    recorded_runs = completion.get("recorded_run_count", expected_runs)
+    if (
+        int(expected_runs) != int(summary["run_count"])
+        or int(recorded_runs) != int(summary["run_count"])
+    ):
         raise RuntimeError("Remote completion manifest run count does not match the bundle")
     localized_measurements = _localize_measurement_paths(measurements_path, results)
     summary.update(completion)

@@ -57,8 +57,18 @@ def _power_metrics(
                 if key.endswith("_Power(W)") and (value := _float(raw)) is not None
             ]
             if time_value is not None and samples:
+                power = sum(samples)
+                if times and time_value <= times[-1]:
+                    if time_value == times[-1]:
+                        powers[-1] = power
+                    memories.extend(
+                        value for key, raw in row.items()
+                        if key.endswith("_MemoryUsed(MiB)")
+                        and (value := _float(raw)) is not None
+                    )
+                    continue
                 times.append(time_value)
-                powers.append(sum(samples))
+                powers.append(power)
                 memories.extend(
                     value for key, raw in row.items()
                     if key.endswith("_MemoryUsed(MiB)") and (value := _float(raw)) is not None
@@ -71,6 +81,24 @@ def _power_metrics(
     duration = float(time_array[-1] - time_array[0])
     average = energy / duration if duration > 0 else None
     return average, float(np.max(power_array)), energy, max(memories) if memories else None, len(times)
+
+
+def _result_peak_memory_mib(log_path: str | Path) -> float | None:
+    """Use application-reported accelerator peak memory when telemetry omits it."""
+    result_path = Path(log_path).parent / "result.json"
+    if not result_path.is_file():
+        return None
+    try:
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    runtime = result.get("effective_runtime", {})
+    candidates = [
+        _float(runtime.get("peak_accelerator_memory_allocated_bytes")),
+        _float(runtime.get("peak_accelerator_memory_reserved_bytes")),
+    ]
+    valid = [value for value in candidates if value is not None and value >= 0]
+    return max(valid) / (1024.0 * 1024.0) if valid else None
 
 
 def extract_measurements(
@@ -89,13 +117,19 @@ def extract_measurements(
         seen.add(run_id)
         issues: list[str] = []
         latency = _float(row.get("total_time_s"))
-        if row.get("status") != "completed" or str(row.get("return_code")) != "0":
+        if (
+            str(row.get("status", "")).strip().lower()
+            not in {"completed", "success"}
+            or str(row.get("return_code")) != "0"
+        ):
             issues.append("run_failed")
         if latency is None or latency <= 0:
             issues.append("invalid_total_time")
         average_power, peak_power, energy, peak_memory, sample_count = _power_metrics(
             row.get("power_trace_path", "")
         )
+        if peak_memory is None:
+            peak_memory = _result_peak_memory_mib(row.get("log_path", ""))
         if sample_count < 2:
             issues.append("insufficient_power_samples")
         if peak_memory is None:

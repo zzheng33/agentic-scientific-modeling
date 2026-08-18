@@ -1,0 +1,24 @@
+schema_version: '0.1'
+status: awaiting_human_review
+expected_runs: 1
+observed_runs: 1
+unique_runs: 1
+usable_runs: 1
+failed_or_incomplete_runs: 0
+duplicate_run_ids: []
+missing_run_count: 0
+suspicious_run_ids: []
+run_decisions:
+- run_id: run-00001
+  decision: include
+  reason: complete_and_valid
+validation:
+  ready_for_modeling: true
+  power_required: true
+  energy_method: trapezoidal integration of summed GPU power over Time(S)
+extracted_runs_artifact:
+  artifact_type: modeling_runs_extracted
+  stage: measurement_validation_review
+  version: 2
+  path: artifacts/measurement_validation_review/modeling_runs_extracted.v002.csv
+  sha256: 80c7532affa27a3d37d670c0597b8d774e874135ff332e4d148154fc624fcf87

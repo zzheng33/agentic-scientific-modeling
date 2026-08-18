@@ -1,0 +1,40 @@
+schema_version: '0.2'
+status: awaiting_human_review
+systemflow_root: /Users/zhongzheng/Desktop/workspace/systemflow
+model_path: /Users/zhongzheng/Desktop/workspace/agentic-scientific-modeling/runs/ptychi_001/artifacts/systemflow_mapping/workflow_application_resource_model.v002.json
+application_id: pty-chi
+component_name: pty_chi_reconstruction
+loader: WorkflowApplicationResourceModel
+mutation: ScientificApplicationModel
+runtime_source: agents.systemflow_integration.compat_runtime
+execution_graph_count: 1
+validation:
+  generic_model_loaded: true
+  mapping_contract_valid: true
+  actual_execution_graphs_executed: true
+  all_predictions_positive: true
+  all_model_groups_covered: true
+  domain_specific_adapter_required: false
+predictions:
+- group:
+    accelerator: GH200
+    algorithm: pie
+  point_id: p001
+  targets:
+    avg_power_w: 95.9240806
+    energy_j: 845.0911499999999
+    latency_s: 1.3117460000000003
+    peak_memory_mib: 24.0
+    throughput_per_s: 48.78993340000001
+mapped_model_artifact:
+  artifact_type: workflow_application_resource_model
+  stage: systemflow_mapping
+  version: 2
+  path: artifacts/systemflow_mapping/workflow_application_resource_model.v002.json
+  sha256: 68a31447fde6eecf3920134d648ce85446c9064e6da4f338355277cfabbdfa2c
+mapping_artifact:
+  artifact_type: systemflow_application_mapping
+  stage: systemflow_mapping_review
+  version: 1
+  path: artifacts/systemflow_mapping_review/systemflow_application_mapping.v001.yaml
+  sha256: 5ecac9640a005ae3810b27d85867a6ef5d5d244494ddf4e2a764d59c569968c4

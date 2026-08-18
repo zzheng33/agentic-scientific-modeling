@@ -79,7 +79,7 @@ repetitions = 3
 [planner.rag]
 # JLSE scripts and validated runbooks used as operational planning evidence.
 # This index is independent from the characterization paper index.
-enabled = false
+enabled = true
 corpus_path = "knowledge/jlse/runbooks"
 index_path = "knowledge/jlse/index"
 embedding_model = "BAAI/bge-m3"
@@ -126,6 +126,11 @@ poll_timeout_s = 3600
 qsub_command = "qsub"
 qstat_command = "qstat"
 continue_on_error = true
+
+[dataset_runtime]
+# Login-node Python used only before qsub for deterministic dataset generation.
+# This environment needs numpy and h5py, but does not need CUDA or PyTorch.
+python = "/home/zhong.zheng/venv/bin/python"
 
 [systemflow]
 path = "../systemflow"

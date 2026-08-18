@@ -349,13 +349,39 @@ def benchmark_workflow(args: argparse.Namespace) -> None:
             if not values.get("approved_benchmark_manifest_ref"):
                 raise ValueError("Approve the benchmark run manifest before execution")
             if values.get("measurements_ref"):
-                raise ValueError("Benchmark measurements already exist for this workflow")
+                validation_ref = (
+                    values.get("approved_validation_ref")
+                    or values.get("measurement_validation_ref")
+                )
+                validation = (
+                    store.read_artifact(ArtifactRef.model_validate(validation_ref))
+                    if validation_ref
+                    else {}
+                )
+                ready = bool(
+                    validation.get("validation", {}).get("ready_for_modeling", False)
+                )
+                if ready:
+                    raise ValueError(
+                        "Usable benchmark measurements already exist for this workflow"
+                    )
             graph.update_state(
                 config,
                 {
                     "route": "remote_execute_benchmark",
                     "current_stage": "remote_execution",
                     "workflow_status": "remote_executing",
+                    "benchmark_execution_ref": None,
+                    "remote_execution_ref": None,
+                    "measurements_ref": None,
+                    "extracted_runs_ref": None,
+                    "measurement_validation_ref": None,
+                    "approved_validation_ref": None,
+                    "submitted_review": None,
+                    "resource_model_ref": None,
+                    "resource_model_json_ref": None,
+                    "resource_coefficients_ref": None,
+                    "approved_resource_model_ref": None,
                 },
                 as_node="apply_benchmark_review",
             )

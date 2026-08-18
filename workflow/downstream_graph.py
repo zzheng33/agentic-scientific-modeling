@@ -355,7 +355,10 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
     plan_path = store.verify_artifact(plan_ref)
     plan = store.read_artifact(plan_ref)
     matrix_path = store.verify_artifact(_ref(state, "experiment_matrix_ref"))
-    version = int(state["benchmark_revision"])
+    benchmark_version = int(state["benchmark_revision"])
+    execution_version = store.next_artifact_version(
+        "benchmark_execution", minimum=benchmark_version
+    )
     configurations = RemoteExecutorConfig.all_from_file(state.get("config_path"))
     aliases = _planned_machine_aliases(plan)
     measurement_documents: list[str] = []
@@ -368,7 +371,7 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
         machine_matrix = store.write_text_artifact(
             stage="benchmark_execution",
             artifact_type=f"experiment_matrix_{configuration.accelerator.lower()}",
-            version=version,
+            version=execution_version,
             extension="csv",
             content=_filter_matrix_for_machine(
                 matrix_path,
@@ -384,7 +387,7 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
             state["application_path"],
             state["run_dir"],
             state["workflow_id"],
-            version,
+            benchmark_version,
             configuration,
         )
         machine_summary["matrix_artifact"] = machine_matrix.model_dump(mode="json")
@@ -404,7 +407,7 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
     measurements_ref = store.write_text_artifact(
         stage="benchmark_execution",
         artifact_type="raw_measurements",
-        version=version,
+        version=execution_version,
         extension="csv",
         content=measurements_csv,
     )
@@ -414,13 +417,15 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
                 state, "approved_benchmark_manifest_ref"
             ).model_dump(mode="json"),
             "planned_runs": int(manifest["run_count"]),
+            "benchmark_revision": benchmark_version,
+            "execution_revision": execution_version,
             "measurements_artifact": measurements_ref.model_dump(mode="json"),
         }
     )
     summary_ref = store.write_artifact(
         stage="benchmark_execution",
         artifact_type="remote_execution_summary",
-        version=version,
+        version=execution_version,
         payload=summary,
     )
     return {
@@ -429,7 +434,7 @@ def remote_executor(state: WorkflowState) -> dict[str, Any]:
         "remote_execution_ref": summary_ref.model_dump(mode="json"),
         "workflow_status": summary["status"],
         "current_stage": "remote_execution_complete",
-        "validation_revision": 0,
+        "validation_revision": int(state.get("validation_revision", 0)),
     }
 
 
@@ -659,7 +664,9 @@ def integrate_systemflow(state: WorkflowState) -> dict[str, Any]:
     mapping = store.read_artifact(_ref(state, "approved_systemflow_mapping_ref"))
     plan = store.read_artifact(_ref(state, "approved_experiment_plan_ref"))
     mapped = prepare_systemflow_model(model, plan)
-    version = int(state.get("integration_revision", 0)) + 1
+    version = store.next_artifact_version(
+        "systemflow_mapping", minimum=int(state.get("integration_revision", 0)) + 1
+    )
     mapped_ref = store.write_text_artifact(
         stage="systemflow_mapping",
         artifact_type="workflow_application_resource_model",

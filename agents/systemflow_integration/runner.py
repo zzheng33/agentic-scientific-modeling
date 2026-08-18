@@ -195,6 +195,18 @@ def prepare_systemflow_model(
     document = copy.deepcopy(approved_model)
     document["status"] = "approved_model_mapped_for_systemflow"
     document["group_aliases"] = {}
+    plan_inputs = {
+        item.get("input_id") for item in experiment_plan.get("variables", [])
+    }
+    known_aliases = {"scan_point_count": "n_scan_points"}
+    document["input_aliases"] = {
+        input_id: (
+            input_id
+            if input_id in plan_inputs
+            else known_aliases.get(input_id, input_id)
+        )
+        for input_id in document.get("model_inputs", [])
+    }
     document["systemflow_contract"] = {
         "loader": "systemflow.application_models.WorkflowApplicationResourceModel",
         "mutation": "systemflow.application_models.ScientificApplicationModel",
@@ -220,16 +232,27 @@ def validate_systemflow_integration(
     systemflow_root: str | Path,
 ) -> dict[str, Any]:
     root = Path(systemflow_root).expanduser().resolve()
-    if not (root / "systemflow" / "application_models.py").is_file():
-        raise ValueError(f"SystemFlow generic application runtime is missing: {root}")
+    if not (root / "systemflow" / "node.py").is_file():
+        raise ValueError(f"SystemFlow runtime is missing: {root}")
     root_text = str(root)
     if root_text not in sys.path:
         sys.path.insert(0, root_text)
-    from systemflow.application_models import (
-        ApplicationInputSource,
-        ScientificApplicationModel,
-        WorkflowApplicationResourceModel,
-    )
+    try:
+        from systemflow.application_models import (
+            ApplicationInputSource,
+            ScientificApplicationModel,
+            WorkflowApplicationResourceModel,
+        )
+        runtime_source = "systemflow.application_models"
+    except ModuleNotFoundError as exc:
+        if exc.name != "systemflow.application_models":
+            raise
+        from .compat_runtime import (
+            ApplicationInputSource,
+            ScientificApplicationModel,
+            WorkflowApplicationResourceModel,
+        )
+        runtime_source = "agents.systemflow_integration.compat_runtime"
     from systemflow.node import Component, DefaultLink, ExecutionGraph
 
     resource_model = WorkflowApplicationResourceModel(model_path)
@@ -241,8 +264,9 @@ def validate_systemflow_integration(
     for group in resource_model.groups:
         for point in base_points:
             point_inputs = point["inputs"]
+            input_aliases = resource_model.document.get("input_aliases", {})
             raw_inputs = {
-                input_id: point_inputs[input_id]
+                input_id: point_inputs[input_aliases.get(input_id, input_id)]
                 for input_id in resource_model.model_inputs
             }
             raw_groups = {
@@ -308,6 +332,7 @@ def validate_systemflow_integration(
         "component_name": mapping["component_name"],
         "loader": "WorkflowApplicationResourceModel",
         "mutation": "ScientificApplicationModel",
+        "runtime_source": runtime_source,
         "execution_graph_count": len(predictions),
         "validation": {
             "generic_model_loaded": True,
