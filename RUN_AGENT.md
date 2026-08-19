@@ -116,7 +116,9 @@ This verification must print `Ready` for both models. Because the repositories
 are public, a Hugging Face token is normally not required.
 
 The `./agentic` launcher automatically uses `setup/venv/bin/python` and sets
-the project-local Hugging Face cache. You therefore do not need to activate
+the project-local Hugging Face cache. Runtime model loading is offline-only, so
+agents cannot silently download or replace model files. Model downloads happen
+only through `setup/download_models.py`. You therefore do not need to activate
 the virtual environment for normal commands. To work with its Python directly,
 activation is optional:
 
@@ -148,6 +150,30 @@ Next, build the two indexes:
 
 Both status commands should report `ready`. You do not need to rebuild an
 index unless its papers, scripts, or runbooks change.
+
+### Optional: expose the local knowledge through MCP
+
+Setup also installs the official MCP Python SDK. Two read-only stdio servers are
+available:
+
+```bash
+# Root-confined application listing, reading, and literal search
+./agentic mcp-server codebase
+
+# Hybrid retrieval over papers and JLSE runbooks
+./agentic mcp-server knowledge
+```
+
+Normally an MCP host launches these commands as child processes; running one
+directly appears to wait because `stdout` is carrying the MCP protocol. The
+Codebase MCP reads `[application].path`. The Knowledge MCP reads the two RAG
+configurations and uses the already-built indexes. It supports `papers` and
+`jlse` as explicit corpus names and loads BGE-M3/reranker weights lazily on the
+first search.
+
+These servers do not expose file writes, shell execution, SSH, `qsub`, artifact
+approval, or index mutation. See `mcp_servers/README.md` for their tools and an
+MCP host configuration example.
 
 ## 2. Configure the run
 

@@ -7,6 +7,10 @@ agentic_python="$agentic_root/setup/venv/bin/python"
 # Keep Hugging Face model weights inside the project so the runtime does not
 # depend on a particular user's ~/.cache directory.
 export HF_HOME="${AGENTIC_HF_HOME:-$agentic_root/models/huggingface}"
+# Runtime inference must use the project-local snapshots. Model downloads are
+# performed explicitly by setup/download_models.py, not implicitly by agents.
+export HF_HUB_OFFLINE="${AGENTIC_HF_HUB_OFFLINE:-1}"
+export TRANSFORMERS_OFFLINE="${AGENTIC_TRANSFORMERS_OFFLINE:-1}"
 
 if [[ ! -x "$agentic_python" ]]; then
   echo "error: virtual environment not found; run setup/setup_venv.sh first" >&2

@@ -99,6 +99,14 @@ def build_parser() -> argparse.ArgumentParser:
     jlse_rag.add_argument("action", choices=("build", "status", "search"))
     jlse_rag.add_argument("--config", type=Path, default=PROJECT_ROOT / "config.toml")
     jlse_rag.add_argument("--query", help="Required for the search action")
+    mcp_server = commands.add_parser(
+        "mcp-server", help="Run a read-only local MCP server over stdio"
+    )
+    mcp_server.add_argument("server", choices=("codebase", "knowledge"))
+    mcp_server.add_argument("--config", type=Path, default=PROJECT_ROOT / "config.toml")
+    mcp_server.add_argument(
+        "--root", type=Path, help="Application root override for the codebase server"
+    )
     return parser
 
 
@@ -491,6 +499,28 @@ def manage_jlse_rag_index(args: argparse.Namespace) -> None:
     )
 
 
+def run_mcp_server(args: argparse.Namespace) -> None:
+    """Start one local stdio server; stdout is reserved for the MCP wire protocol."""
+    if args.server == "codebase":
+        from mcp_servers.codebase.server import configured_application_root, create_server
+
+        root = args.root or configured_application_root(args.config)
+        create_server(root).run()
+        return
+
+    if args.root is not None:
+        raise ValueError("--root is only valid for the codebase MCP server")
+    from mcp_servers.knowledge.server import create_server
+    from mcp_servers.knowledge.service import (
+        KnowledgeService,
+        load_corpus_configurations,
+    )
+
+    create_server(
+        KnowledgeService(load_corpus_configurations(args.config))
+    ).run()
+
+
 def main() -> None:
     args = build_parser().parse_args()
     try:
@@ -514,6 +544,8 @@ def main() -> None:
             manage_rag_index(args)
         elif args.command == "jlse-rag":
             manage_jlse_rag_index(args)
+        elif args.command == "mcp-server":
+            run_mcp_server(args)
         else:
             raise ValueError(f"Unknown command: {args.command}")
     except (ValueError, RuntimeError) as exc:
